@@ -28,7 +28,7 @@ Codex Linux Community is a repository-first desktop coding agent. Desktop conven
 ## 0.4 — Linux desktop integration
 
 - [x] Configurable global shortcut and tray behavior across GNOME, KDE, and common Wayland compositors
-- Screenshot selection for display, window, and region
+- [x] Screenshot selection for display, window, and region
 - Camera capture and attachment preview
 - Notifications, launch at login, protocol/deep links, and updater channels
 - Accessibility audit, keyboard navigation, reduced motion, text scaling, and high-contrast support

@@ -11,7 +11,7 @@ An unofficial Linux desktop client powered by the installed OpenAI Codex CLI. It
 - Stream agent messages, reasoning, terminal output, file changes, and tool calls
 - Render Markdown, highlighted code, tables, links, and copyable code blocks
 - Attach files and images using the file picker, clipboard, or drag and drop
-- Capture screens and application windows as image attachments
+- Capture full screens and application windows, or drag-select a precise region, as image attachments
 - Review Git branches plus working, staged, and current-turn diffs per file
 - Stage, unstage, safely discard working changes, and commit staged changes
 - Run multiple persistent interactive project terminals with tabs, lifecycle state, and background-output indicators

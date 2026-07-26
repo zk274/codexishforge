@@ -13,6 +13,7 @@ import { GitService } from "./git-service.mjs";
 import { inspectCodexProtocol, unknownProtocolCompatibility } from "./protocol-compatibility.mjs";
 import { StructuredLogger } from "./structured-logger.mjs";
 import { createTrayIconPng } from "./tray-icon.mjs";
+import { validateCropRectangle } from "../shared/capture-region.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let client = null;
@@ -364,7 +365,20 @@ function registerIpc() {
   ipcMain.handle("desktop:captureSources", async () => {
     const sources = await desktopCapturer.getSources({ types: ["screen", "window"], thumbnailSize: { width: 1920, height: 1080 }, fetchWindowIcons: true });
     captureSources = new Map(sources.map((source) => [source.id, source]));
-    return sources.map((source) => ({ id: source.id, name: source.name, thumbnail: source.thumbnail.toDataURL(), icon: source.appIcon?.toDataURL() || null }));
+    return sources.map((source) => {
+      const size = source.thumbnail.getSize();
+      return {
+        id: source.id,
+        name: source.name,
+        kind: source.id.startsWith("screen:") ? "screen" : "window",
+        displayId: source.display_id || null,
+        width: size.width,
+        height: size.height,
+        thumbnail: source.thumbnail.toDataURL(),
+        icon: source.appIcon?.toDataURL() || null,
+        wayland: process.env.XDG_SESSION_TYPE?.toLowerCase() === "wayland",
+      };
+    });
   });
 
   ipcMain.handle("desktop:captureSource", (_event, sourceId) => {
@@ -372,6 +386,15 @@ function registerIpc() {
     if (!source) throw new Error("That screenshot source is no longer available");
     captureSources.clear();
     return saveImage(source.thumbnail, "screenshot");
+  });
+
+  ipcMain.handle("desktop:captureSourceRegion", (_event, { sourceId, rect } = {}) => {
+    const source = captureSources.get(sourceId);
+    if (!source) throw new Error("That screenshot source is no longer available");
+    const crop = validateCropRectangle(rect, source.thumbnail.getSize(), { minimum: 4 });
+    const image = source.thumbnail.crop(crop);
+    captureSources.clear();
+    return saveImage(image, "region");
   });
 
   ipcMain.handle("desktop:getPreferences", () => desktopState());
@@ -511,13 +534,30 @@ function createWindow() {
     mainWindow = null;
     if (!isQuitting) app.quit();
   });
-  const captureArgument = process.argv.find((argument) => argument.startsWith("--capture-ui=") || argument.startsWith("--capture-diagnostics-ui=") || argument.startsWith("--capture-settings-ui="));
+  const captureArgument = process.argv.find((argument) => argument.startsWith("--capture-ui=") || argument.startsWith("--capture-diagnostics-ui=") || argument.startsWith("--capture-settings-ui=") || argument.startsWith("--capture-region-ui="));
   if (captureArgument) mainWindow.webContents.once("did-finish-load", () => setTimeout(async () => {
     if (captureArgument.startsWith("--capture-diagnostics-ui=")) {
       await mainWindow.webContents.executeJavaScript("document.querySelector('#moreButton').click()");
       await new Promise((resolve) => setTimeout(resolve, 500));
     } else if (captureArgument.startsWith("--capture-settings-ui=")) {
       await mainWindow.webContents.executeJavaScript("document.querySelector('#accountButton').click()");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    } else if (captureArgument.startsWith("--capture-region-ui=")) {
+      const preview = `data:image/svg+xml,${encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='1440' height='900'><defs><linearGradient id='g' x2='1' y2='1'><stop stop-color='#20342f'/><stop offset='1' stop-color='#20211d'/></linearGradient></defs><rect width='1440' height='900' fill='url(#g)'/><rect x='90' y='90' width='1260' height='720' rx='24' fill='#171816' stroke='#4b4d43' stroke-width='3'/><text x='150' y='190' fill='#ecede5' font-family='sans-serif' font-size='54'>Captured workspace preview</text><text x='150' y='250' fill='#92968a' font-family='sans-serif' font-size='28'>Drag to select only the pixels you want to attach.</text><rect x='150' y='330' width='500' height='330' rx='18' fill='#242520'/><rect x='700' y='330' width='590' height='90' rx='18' fill='#2a2c25'/><rect x='700' y='450' width='590' height='210' rx='18' fill='#1d1e1a'/></svg>")}`;
+      await mainWindow.webContents.executeJavaScript(`(async () => {
+        const overlay = document.querySelector("#regionOverlay");
+        const image = document.querySelector("#regionImage");
+        const selection = document.querySelector("#regionSelection");
+        document.querySelector("#regionTitle").textContent = "Select part of Captured workspace preview";
+        const loaded = new Promise((resolve) => image.addEventListener("load", resolve, { once: true }));
+        image.src = ${JSON.stringify(preview)};
+        overlay.hidden = false;
+        await loaded;
+        selection.hidden = false;
+        Object.assign(selection.style, { left: "28%", top: "27%", width: "46%", height: "42%" });
+        document.querySelector("#regionStatus").textContent = "662 × 378 pixels selected";
+        document.querySelector("#captureRegionButton").disabled = false;
+      })()`);
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
     const image = await mainWindow.webContents.capturePage();

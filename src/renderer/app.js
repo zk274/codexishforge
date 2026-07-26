@@ -9,10 +9,12 @@ import {
   terminalForHandle,
   unreadTerminalCount,
 } from "./terminal-state.mjs";
+import { selectionFromPoints, selectionToImage } from "../shared/capture-region.mjs";
 
 const api = window.codexDesktop;
 const $ = (selector) => document.querySelector(selector);
 const state = { connected: false, connectionError: null, account: null, cli: null, compatibility: null, desktop: null, loginPending: false, restorationAttempted: false, threads: [], models: [], activeThread: null, turns: [], activeTurnId: null, diff: "", diffView: "working", git: null, gitDiffs: { working: "", staged: "" }, gitSelection: null, gitFileDiff: "", attachments: [], terminals: createTerminalCollection(), requestQueue: [], currentRequest: null };
+const regionCapture = { source: null, start: null, selection: null, dragging: false };
 
 const els = {
   threadList: $("#threadList"), threadSearch: $("#threadSearch"), refresh: $("#refreshButton"),
@@ -33,7 +35,9 @@ const els = {
   gitBranch: $("#gitBranch"), refreshGit: $("#refreshGitButton"), terminalButton: $("#terminalButton"), terminalBadge: $("#terminalBadge"), terminalPanel: $("#terminalPanel"),
   terminalTabs: $("#terminalTabs"), terminalTitle: $("#terminalTitle"), terminalStatus: $("#terminalStatus"), terminalOutput: $("#terminalOutput"), terminalForm: $("#terminalForm"), terminalInput: $("#terminalInput"),
   newTerminal: $("#newTerminalButton"), closeTerminal: $("#closeTerminalButton"), restartTerminal: $("#restartTerminalButton"), attachmentTray: $("#attachmentTray"), attach: $("#attachButton"), screenshot: $("#screenshotButton"), composer: $("#composer"),
-  screenshotOverlay: $("#screenshotOverlay"), closeCapture: $("#closeCaptureButton"), captureSources: $("#captureSources"),
+  screenshotOverlay: $("#screenshotOverlay"), closeCapture: $("#closeCaptureButton"), captureHint: $("#captureHint"), captureSources: $("#captureSources"),
+  regionOverlay: $("#regionOverlay"), regionCanvas: $("#regionCanvas"), regionImage: $("#regionImage"), regionSelection: $("#regionSelection"),
+  regionStatus: $("#regionStatus"), closeRegion: $("#closeRegionButton"), cancelRegion: $("#cancelRegionButton"), captureRegion: $("#captureRegionButton"),
   more: $("#moreButton"), diagnosticsOverlay: $("#diagnosticsOverlay"), closeDiagnostics: $("#closeDiagnosticsButton"), diagnosticsStatus: $("#diagnosticsStatus"), diagnosticsContent: $("#diagnosticsContent"),
   showLog: $("#showLogButton"), copyDiagnostics: $("#copyDiagnosticsButton"), exportDiagnostics: $("#exportDiagnosticsButton"),
 };
@@ -347,16 +351,105 @@ function renderAttachments() {
 }
 
 async function chooseAttachments() { try { addAttachments(await api.chooseAttachments()); } catch (error) { showError(error); } }
+
+function imageCropForSelection() {
+  if (!regionCapture.selection || !els.regionImage.naturalWidth || !els.regionImage.naturalHeight) return null;
+  const displayed = els.regionCanvas.getBoundingClientRect();
+  return selectionToImage(
+    regionCapture.selection,
+    { width: displayed.width, height: displayed.height },
+    { width: els.regionImage.naturalWidth, height: els.regionImage.naturalHeight },
+  );
+}
+
+function renderRegionSelection() {
+  const selection = regionCapture.selection;
+  els.regionSelection.hidden = !selection;
+  if (!selection) {
+    els.captureRegion.disabled = true;
+    els.regionStatus.textContent = "Drag anywhere on the image to select a region.";
+    return;
+  }
+  Object.assign(els.regionSelection.style, {
+    left: `${selection.x}px`,
+    top: `${selection.y}px`,
+    width: `${selection.width}px`,
+    height: `${selection.height}px`,
+  });
+  try {
+    const crop = imageCropForSelection();
+    const valid = crop.width >= 4 && crop.height >= 4;
+    els.captureRegion.disabled = !valid;
+    els.regionStatus.textContent = valid ? `${crop.width} × ${crop.height} pixels selected` : "Drag a larger region.";
+  } catch {
+    els.captureRegion.disabled = true;
+    els.regionStatus.textContent = "Drag a larger region.";
+  }
+}
+
+function closeRegionCapture() {
+  els.regionOverlay.hidden = true;
+  regionCapture.source = null;
+  regionCapture.start = null;
+  regionCapture.selection = null;
+  regionCapture.dragging = false;
+  els.regionImage.removeAttribute("src");
+  els.regionSelection.hidden = true;
+  els.captureRegion.disabled = true;
+}
+
+function startRegionCapture(source) {
+  regionCapture.source = source;
+  regionCapture.start = null;
+  regionCapture.selection = null;
+  regionCapture.dragging = false;
+  els.screenshotOverlay.hidden = true;
+  els.regionTitle.textContent = `Select part of ${source.name}`;
+  els.regionImage.alt = `Captured preview of ${source.name}`;
+  els.regionImage.src = source.thumbnail;
+  els.regionOverlay.hidden = false;
+  renderRegionSelection();
+}
+
+function regionPoint(event) {
+  const bounds = els.regionCanvas.getBoundingClientRect();
+  return {
+    point: { x: event.clientX - bounds.left, y: event.clientY - bounds.top },
+    bounds: { width: bounds.width, height: bounds.height },
+  };
+}
+
+function updateRegionDrag(event) {
+  if (!regionCapture.dragging || !regionCapture.start) return;
+  const { point, bounds } = regionPoint(event);
+  regionCapture.selection = selectionFromPoints(regionCapture.start, point, bounds);
+  renderRegionSelection();
+}
+
 async function showCaptureSources() {
-  els.screenshotOverlay.hidden = false; els.captureSources.textContent = "Loading screens and windows…";
+  closeRegionCapture();
+  els.screenshotOverlay.hidden = false; els.captureHint.textContent = "Capture the full source, or select just the part you need."; els.captureSources.textContent = "Loading screens and windows…";
   try {
     const sources = await api.captureSources(); els.captureSources.replaceChildren();
+    if (!sources.length) {
+      els.captureSources.textContent = "No screens or windows are available to capture.";
+      return;
+    }
+    if (sources.some((source) => source.wayland)) els.captureHint.textContent = "Your desktop may ask which source to share. Capture it in full or select a region below.";
     for (const source of sources) {
-      const button = document.createElement("button"); button.className = "capture-source";
+      const card = document.createElement("article"); card.className = "capture-source";
       const image = document.createElement("img"); image.src = source.thumbnail; image.alt = "";
-      const label = document.createElement("span"); label.textContent = source.name; button.append(image, label);
-      button.addEventListener("click", async () => { try { addAttachments([await api.captureSource(source.id)]); els.screenshotOverlay.hidden = true; } catch (error) { showError(error); } });
-      els.captureSources.append(button);
+      const label = document.createElement("span"); label.textContent = source.name; label.title = source.name;
+      const actions = document.createElement("div"); actions.className = "capture-source-actions";
+      const full = document.createElement("button"); full.textContent = "Capture full";
+      const region = document.createElement("button"); region.className = "capture-region-action"; region.textContent = "Select region";
+      full.addEventListener("click", async () => {
+        full.disabled = true;
+        try { addAttachments([await api.captureSource(source.id)]); els.screenshotOverlay.hidden = true; }
+        catch (error) { full.disabled = false; showError(error); }
+      });
+      region.addEventListener("click", () => startRegionCapture(source));
+      actions.append(full, region); card.append(image, label, actions); els.captureSources.append(card);
     }
   } catch (error) { showError(error); els.screenshotOverlay.hidden = true; }
 }
@@ -591,6 +684,47 @@ for (const eventName of ["dragenter", "dragover"]) els.composer.addEventListener
 for (const eventName of ["dragleave", "drop"]) els.composer.addEventListener(eventName, (event) => { event.preventDefault(); els.composer.classList.remove("dragging"); });
 els.composer.addEventListener("drop", async (event) => { try { const paths = [...event.dataTransfer.files].map((file) => api.pathForFile(file)).filter(Boolean); addAttachments(await api.prepareAttachments(paths)); } catch (error) { showError(error); } });
 els.attach.addEventListener("click", chooseAttachments); els.screenshot.addEventListener("click", showCaptureSources); els.closeCapture.addEventListener("click", () => { els.screenshotOverlay.hidden = true; });
+els.regionCanvas.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0 || !regionCapture.source || !els.regionImage.complete) return;
+  event.preventDefault();
+  const { point, bounds } = regionPoint(event);
+  regionCapture.start = selectionFromPoints(point, point, bounds);
+  regionCapture.start = { x: regionCapture.start.x, y: regionCapture.start.y };
+  regionCapture.selection = null;
+  regionCapture.dragging = true;
+  els.regionCanvas.setPointerCapture(event.pointerId);
+  updateRegionDrag(event);
+});
+els.regionCanvas.addEventListener("pointermove", updateRegionDrag);
+els.regionCanvas.addEventListener("pointerup", (event) => {
+  if (!regionCapture.dragging) return;
+  updateRegionDrag(event);
+  regionCapture.dragging = false;
+  regionCapture.start = null;
+  if (els.regionCanvas.hasPointerCapture(event.pointerId)) els.regionCanvas.releasePointerCapture(event.pointerId);
+});
+els.regionCanvas.addEventListener("pointercancel", () => {
+  regionCapture.dragging = false;
+  regionCapture.start = null;
+  renderRegionSelection();
+});
+els.regionImage.addEventListener("load", renderRegionSelection);
+for (const button of [els.closeRegion, els.cancelRegion]) button.addEventListener("click", closeRegionCapture);
+els.captureRegion.addEventListener("click", async () => {
+  const source = regionCapture.source;
+  if (!source) return;
+  try {
+    const rect = imageCropForSelection();
+    if (!rect || rect.width < 4 || rect.height < 4) throw new Error("Select a larger screenshot region");
+    els.captureRegion.disabled = true;
+    els.regionStatus.textContent = "Attaching selected region…";
+    addAttachments([await api.captureSourceRegion({ sourceId: source.id, rect })]);
+    closeRegionCapture();
+  } catch (error) {
+    renderRegionSelection();
+    showError(error);
+  }
+});
 els.stop.addEventListener("click", async () => { try { await api.interruptTurn({ threadId: state.activeThread.id, turnId: state.activeTurnId }); } catch (error) { showError(error); } });
 els.diffButton.addEventListener("click", () => { refreshGit(); els.diffPanel.classList.add("open"); els.diffPanel.setAttribute("aria-hidden", "false"); }); els.closeDiff.addEventListener("click", () => { els.diffPanel.classList.remove("open"); els.diffPanel.setAttribute("aria-hidden", "true"); });
 for (const tab of document.querySelectorAll("[data-diff-view]")) tab.addEventListener("click", async () => { state.diffView = tab.dataset.diffView; state.gitSelection = null; state.gitFileDiff = ""; renderDiff(); const first = gitFilesForView()[0]; if (first) await selectGitFile(first.path); }); els.refreshGit.addEventListener("click", refreshGit);
@@ -631,7 +765,7 @@ document.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") { event.preventDefault(); chooseAndStartThread().catch(showError); }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "j") { event.preventDefault(); openTerminal(); }
   if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === "`" && terminalPanelVisible()) { event.preventDefault(); startTerminal().catch(showError); }
-  if (event.key === "Escape") { els.diffPanel.classList.remove("open"); els.terminalPanel.classList.remove("open"); els.screenshotOverlay.hidden = true; els.diagnosticsOverlay.hidden = true; els.authOverlay.hidden = true; }
+  if (event.key === "Escape") { els.diffPanel.classList.remove("open"); els.terminalPanel.classList.remove("open"); els.screenshotOverlay.hidden = true; closeRegionCapture(); els.diagnosticsOverlay.hidden = true; els.authOverlay.hidden = true; }
 });
 for (const button of document.querySelectorAll("[data-prompt]")) button.addEventListener("click", () => chooseAndStartThread(button.dataset.prompt).catch(showError));
 bootstrap();
