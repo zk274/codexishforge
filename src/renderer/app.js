@@ -134,6 +134,10 @@ function closeActiveModal(overlay) {
   else if (overlay === els.authOverlay) hideDialog(els.authOverlay, els.settings);
 }
 
+function closeOnBackdropClick(event) {
+  if (event.target === event.currentTarget) closeActiveModal(event.currentTarget);
+}
+
 function applyAccessibilityPreferences(preferences) {
   if (!preferences) return;
   const reduceMotion = preferences.reduceMotion || reduceMotionQuery.matches;
@@ -1293,6 +1297,9 @@ els.more.addEventListener("click", openDiagnostics); els.closeDiagnostics.addEve
 els.copyDiagnostics.addEventListener("click", async () => { try { await api.copyDiagnostics(); toast("Diagnostics copied"); } catch (error) { showError(error); } });
 els.exportDiagnostics.addEventListener("click", async () => { try { const filePath = await api.exportDiagnostics(); if (filePath) toast(`Diagnostics exported to ${filePath}`); } catch (error) { showError(error); } });
 els.showLog.addEventListener("click", () => api.showLogFile().catch(showError));
+for (const overlay of [els.authOverlay, els.screenshotOverlay, els.cameraOverlay, els.diagnosticsOverlay]) {
+  overlay.addEventListener("click", closeOnBackdropClick);
+}
 document.addEventListener("keydown", (event) => {
   const modal = activeModal();
   if (modal) {

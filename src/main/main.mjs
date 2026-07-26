@@ -853,10 +853,16 @@ function createWindow({ show = true } = {}) {
           backgroundInert: document.querySelector(".app-shell").inert && document.querySelector(".titlebar").inert,
           highContrast: document.documentElement.classList.contains("high-contrast"),
           scale: scale.value,
+          titlebarSafeArea: Number.parseFloat(getComputedStyle(document.querySelector(".titlebar")).paddingRight) >= 150,
         };
-        if (!state.dialogOpen || !state.dialogOwnsFocus || !state.backgroundInert || !state.highContrast || state.scale !== "1.25") {
+        if (!state.dialogOpen || !state.dialogOwnsFocus || !state.backgroundInert || !state.highContrast || state.scale !== "1.25" || !state.titlebarSafeArea) {
           throw new Error("Accessibility UI validation failed: " + JSON.stringify(state));
         }
+        document.querySelector("#authOverlay").click();
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const backdropDismissed = document.querySelector("#authOverlay").hidden && !document.querySelector(".app-shell").inert && !document.querySelector(".titlebar").inert;
+        if (!backdropDismissed) throw new Error("Dialog backdrop validation failed");
+        document.querySelector("#accountButton").click();
       })()`);
       await new Promise((resolve) => setTimeout(resolve, 500));
     } else if (captureArgument.startsWith("--capture-updates-ui=")) {

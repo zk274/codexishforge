@@ -25,6 +25,15 @@ test("every modal dialog is named and modal focus is contained", () => {
   assert.match(app, /if \(event\.key === "Escape"\).*closeActiveModal/);
 });
 
+test("window controls have reserved titlebar space and non-blocking dialogs dismiss from their backdrop", () => {
+  assert.match(css, /--window-controls-width:\s*138px/);
+  assert.match(css, /\.titlebar\s*\{[^}]*padding:\s*0 calc\(18px \+ var\(--window-controls-width\)\) 0 18px/);
+  assert.match(app, /function closeOnBackdropClick/);
+  assert.match(app, /event\.target === event\.currentTarget/);
+  assert.match(app, /\[els\.authOverlay, els\.screenshotOverlay, els\.cameraOverlay, els\.diagnosticsOverlay\]/);
+  assert.match(fs.readFileSync(new URL("../src/main/main.mjs", import.meta.url), "utf8"), /Dialog backdrop validation failed/);
+});
+
 test("keyboard paths cover threads, tabs, region capture, and global navigation", () => {
   assert.match(app, /els\.threadList\.addEventListener\("keydown"/);
   assert.match(app, /document\.querySelector\("\.diff-tabs"\)\.addEventListener\("keydown"/);
