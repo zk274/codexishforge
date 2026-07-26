@@ -1,0 +1,61 @@
+{
+  "name": "codex-linux-community",
+  "version": "0.3.0",
+  "description": "An unofficial Linux desktop client for the OpenAI Codex CLI",
+  "author": {
+    "name": "Codex Linux Community contributors",
+    "email": "maintainers@codexlinux.community"
+  },
+  "homepage": "https://github.com/codex-linux-community/codex-linux-community",
+  "license": "MIT",
+  "desktopName": "community.codexlinux.desktop",
+  "type": "module",
+  "main": "src/main/main.mjs",
+  "scripts": {
+    "build:renderer": "esbuild scripts/renderer-richtext.js --bundle --format=iife --outfile=src/renderer/vendor/richtext.js --minify",
+    "start": "npm run build:renderer --silent && env -u ELECTRON_RUN_AS_NODE electron .",
+    "dev": "npm run build:renderer --silent && env -u ELECTRON_RUN_AS_NODE electron . --dev",
+    "test": "node --test --experimental-test-isolation=none",
+    "check": "npm run build:renderer --silent && node --check src/main/main.mjs && node --check src/main/preload.cjs && node --check src/main/codex-client.mjs && node --check src/main/codex-locator.mjs && node --check src/main/desktop-preferences.mjs && node --check src/main/git-service.mjs && node --check src/main/protocol-compatibility.mjs && node --check src/main/structured-logger.mjs && node --check src/main/tray-icon.mjs && node --check src/renderer/app.js && node --check src/renderer/terminal-state.mjs && node --check scripts/build-linux.mjs && node --test --experimental-test-isolation=none",
+    "dist": "npm run build:renderer --silent && node scripts/build-linux.mjs"
+  },
+  "devDependencies": {
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12",
+    "esbuild": "^0.25.12"
+  },
+  "build": {
+    "appId": "community.codexlinux",
+    "productName": "Codex Linux Community",
+    "asar": true,
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb",
+        "snap"
+      ],
+      "category": "Development",
+      "icon": "assets/icon.svg",
+      "syncDesktopName": true,
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "snapcraft": {
+      "base": "core22",
+      "core22": {
+        "confinement": "classic",
+        "grade": "stable",
+        "summary": "A Linux desktop client for the OpenAI Codex CLI"
+      }
+    }
+  },
+  "dependencies": {
+    "dompurify": "^3.4.12",
+    "highlight.js": "^11.11.1",
+    "marked": "^16.4.2"
+  }
+}

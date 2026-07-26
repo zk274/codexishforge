@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'none'" />
+    <title>Codex Linux Community</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="titlebar">
+      <div class="brand-mark" aria-hidden="true">⌁</div>
+      <span>Codex Linux</span>
+      <span class="community-pill">community</span>
+    </div>
+
+    <main class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar-actions">
+          <button class="new-thread primary" id="newThreadButton">
+            <span>＋</span><span>New thread</span><kbd>Ctrl N</kbd>
+          </button>
+          <label class="search-box">
+            <span>⌕</span>
+            <input id="threadSearch" type="search" placeholder="Search threads" />
+          </label>
+        </div>
+
+        <div class="thread-heading"><span>Threads</span><button id="refreshButton" title="Refresh">↻</button></div>
+        <nav id="threadList" class="thread-list" aria-label="Threads"></nav>
+
+        <button class="account-card" id="accountButton" title="Account and Codex CLI settings">
+          <span class="status-dot" id="connectionDot"></span>
+          <div><strong id="accountName">Connecting…</strong><small id="accountPlan">Codex CLI</small></div>
+          <span class="account-chevron">›</span>
+        </button>
+      </aside>
+
+      <section class="workspace">
+        <header class="workspace-header">
+          <div class="workspace-title">
+            <strong id="threadTitle">New thread</strong>
+            <span><i id="gitBranch" hidden>⑂ —</i><span id="projectPath">Choose a project to begin</span></span>
+          </div>
+          <div class="header-actions">
+            <button id="terminalButton" class="ghost-button" disabled><span>›_</span> Terminal <b id="terminalBadge" hidden></b></button>
+            <button id="diffButton" class="ghost-button" disabled><span>±</span> Changes <b id="diffBadge">0</b></button>
+            <button id="moreButton" class="icon-button" title="Thread details">•••</button>
+          </div>
+        </header>
+
+        <div class="conversation" id="conversation">
+          <section class="welcome" id="welcome">
+            <div class="welcome-glyph">⌁</div>
+            <p class="eyebrow">YOUR LINUX WORKSPACE</p>
+            <h1>What are we building?</h1>
+            <p class="welcome-copy">Open a local project and work with Codex in a focused desktop interface. Your existing CLI login, config, skills, and threads stay in one place.</p>
+            <button id="openProjectButton" class="open-project">Open a project <span>→</span></button>
+            <div class="suggestions">
+              <button data-prompt="Explain this codebase and identify the main entry points."><span>⌘</span><div><b>Explore the codebase</b><small>Map the architecture and key flows</small></div></button>
+              <button data-prompt="Review the current changes for bugs and regressions."><span>◫</span><div><b>Review changes</b><small>Find bugs before they ship</small></div></button>
+              <button data-prompt="Run the test suite, diagnose any failures, and fix them."><span>✓</span><div><b>Fix failing tests</b><small>Diagnose, repair, and verify</small></div></button>
+            </div>
+          </section>
+          <div id="messages" class="messages" hidden></div>
+        </div>
+
+        <footer class="composer-wrap">
+          <div class="composer" id="composer">
+            <div id="attachmentTray" class="attachment-tray" hidden></div>
+            <textarea id="promptInput" rows="1" placeholder="Ask Codex to work on this project…" disabled></textarea>
+            <div class="composer-toolbar">
+              <div class="composer-options">
+                <button id="attachButton" class="option-button" title="Attach files">＋</button>
+                <button id="screenshotButton" class="option-button" title="Take screenshot">▣</button>
+                <button id="folderButton" class="option-button" title="Choose project">⌂ <span id="folderName">Project</span></button>
+                <select id="modelSelect" aria-label="Model"><option value="">Default model</option></select>
+                <select id="effortSelect" aria-label="Reasoning effort">
+                  <option value="">Default effort</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option>
+                </select>
+              </div>
+              <button id="sendButton" class="send-button" disabled title="Send (Ctrl+Enter)">↑</button>
+              <button id="stopButton" class="stop-button" hidden title="Stop turn">■</button>
+            </div>
+          </div>
+          <p class="composer-note">Codex can make mistakes. Review commands and changes before approval.</p>
+        </footer>
+      </section>
+
+      <aside id="diffPanel" class="diff-panel" aria-hidden="true">
+        <header><div><strong>Working changes</strong><span id="diffSummary">No changes yet</span></div><button id="closeDiffButton">×</button></header>
+        <nav class="diff-tabs"><button class="active" data-diff-view="working">Working</button><button data-diff-view="staged">Staged</button><button data-diff-view="turn">Current turn</button><button id="refreshGitButton" title="Refresh">↻</button></nav>
+        <div class="diff-body"><nav id="diffFiles" class="diff-files" aria-label="Changed files"></nav><pre id="diffContent">Changes made by Codex will appear here.</pre></div>
+        <footer class="git-actions">
+          <div><span id="gitSelection">Select a changed file</span><button id="gitPrimaryAction" hidden></button><button id="gitDiscardButton" class="danger-button" hidden>Discard</button></div>
+          <form id="gitCommitForm"><input id="gitCommitMessage" maxlength="10000" placeholder="Commit message for staged changes…" /><button id="gitCommitButton" disabled>Commit staged</button></form>
+        </footer>
+      </aside>
+
+      <section id="terminalPanel" class="terminal-panel" aria-hidden="true">
+        <header>
+          <nav id="terminalTabs" class="terminal-tabs" aria-label="Terminal tabs" role="tablist"></nav>
+          <div class="terminal-toolbar-actions"><button id="newTerminalButton" title="New terminal tab">＋</button><button id="restartTerminalButton" title="Restart active terminal">↻</button><button id="closeTerminalButton" title="Hide terminal panel">×</button></div>
+        </header>
+        <div class="terminal-meta"><strong id="terminalTitle">Project terminal</strong><span id="terminalStatus">No terminal tabs</span></div>
+        <pre id="terminalOutput" tabindex="0"></pre>
+        <form id="terminalForm"><span>$</span><input id="terminalInput" autocomplete="off" spellcheck="false" placeholder="Type a command or terminal input…" /><button>Send</button></form>
+      </section>
+    </main>
+
+    <div id="requestOverlay" class="overlay" hidden>
+      <section class="request-dialog" role="dialog" aria-modal="true" aria-labelledby="requestTitle">
+        <span class="request-icon">!</span>
+        <p class="eyebrow" id="requestKind">APPROVAL REQUIRED</p>
+        <h2 id="requestTitle">Codex wants to run a command</h2>
+        <p id="requestReason" class="request-reason"></p>
+        <pre id="requestCommand" class="request-command"></pre>
+        <div id="requestQuestions" class="request-questions"></div>
+        <div class="request-actions">
+          <button id="denyRequestButton" class="secondary-button">Deny</button>
+          <button id="allowSessionButton" class="secondary-button">Allow for session</button>
+          <button id="allowRequestButton" class="primary-action">Allow once</button>
+        </div>
+      </section>
+    </div>
+
+    <div id="authOverlay" class="overlay" hidden>
+      <section class="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+        <button id="closeAuthButton" class="dialog-close" title="Close">×</button>
+        <div class="auth-mark">⌁</div>
+        <p class="eyebrow" id="authEyebrow">CODEX ACCOUNT</p>
+        <h2 id="authTitle">Connect Codex</h2>
+        <p id="authDescription" class="auth-description">Checking the Codex CLI and account…</p>
+        <div class="cli-location" id="cliLocation" hidden>
+          <span>Codex executable</span>
+          <code id="cliPath">Not found</code>
+        </div>
+        <section class="desktop-settings" aria-labelledby="desktopSettingsTitle">
+          <p class="eyebrow" id="desktopSettingsTitle">DESKTOP</p>
+          <label class="setting-field" for="shortcutSelect">
+            <span>Quick-prompt shortcut</span>
+            <select id="shortcutSelect">
+              <option value="CommandOrControl+Shift+Space">Ctrl+Shift+Space</option>
+              <option value="Alt+Shift+Space">Alt+Shift+Space</option>
+              <option value="CommandOrControl+Alt+Space">Ctrl+Alt+Space</option>
+              <option value="CommandOrControl+Shift+J">Ctrl+Shift+J</option>
+              <option value="">Disabled</option>
+            </select>
+          </label>
+          <p id="shortcutPreferenceStatus" class="setting-status">Checking shortcut…</p>
+          <label class="toggle-setting"><input id="trayEnabledInput" type="checkbox" /><span><strong>System tray</strong><small>Show Codex and open Quick Prompt from the tray.</small></span></label>
+          <label class="toggle-setting"><input id="closeToTrayInput" type="checkbox" /><span><strong>Close to tray</strong><small>Keep terminals and Codex running when the main window closes.</small></span></label>
+          <p id="trayPreferenceStatus" class="setting-status">Checking tray support…</p>
+        </section>
+        <div class="auth-actions">
+          <button id="retryConnectionButton" class="secondary-button" hidden>Retry connection</button>
+          <button id="chooseCliButton" class="secondary-button" hidden>Locate Codex CLI…</button>
+          <button id="logoutButton" class="secondary-button" hidden>Sign out</button>
+          <button id="signInButton" class="primary-action" hidden>Sign in with ChatGPT</button>
+        </div>
+        <button id="authDocsButton" class="text-link">Codex installation and login help ↗</button>
+      </section>
+    </div>
+
+    <div id="screenshotOverlay" class="overlay" hidden>
+      <section class="capture-dialog" role="dialog" aria-modal="true" aria-labelledby="captureTitle">
+        <button id="closeCaptureButton" class="dialog-close" title="Close">×</button>
+        <p class="eyebrow">ATTACH SCREENSHOT</p>
+        <h2 id="captureTitle">Choose a screen or window</h2>
+        <div id="captureSources" class="capture-sources"></div>
+      </section>
+    </div>
+
+    <div id="diagnosticsOverlay" class="overlay" hidden>
+      <section class="diagnostics-dialog" role="dialog" aria-modal="true" aria-labelledby="diagnosticsTitle">
+        <button id="closeDiagnosticsButton" class="dialog-close" title="Close">×</button>
+        <p class="eyebrow">SUPPORT &amp; RECOVERY</p>
+        <h2 id="diagnosticsTitle">Diagnostics</h2>
+        <p class="diagnostics-copy">This report excludes credentials and includes recent redacted application events.</p>
+        <div id="diagnosticsStatus" class="diagnostics-status"></div>
+        <pre id="diagnosticsContent">Collecting diagnostics…</pre>
+        <div class="diagnostics-actions">
+          <button id="showLogButton" class="secondary-button">Show log file</button>
+          <button id="copyDiagnosticsButton" class="secondary-button">Copy report</button>
+          <button id="exportDiagnosticsButton" class="primary-action">Export report…</button>
+        </div>
+      </section>
+    </div>
+
+    <div id="toast" class="toast" role="status" hidden></div>
+    <script src="vendor/richtext.js"></script>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

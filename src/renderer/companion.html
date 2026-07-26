@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'none'" />
+    <title>Quick prompt</title>
+    <link rel="stylesheet" href="companion.css" />
+  </head>
+  <body>
+    <main>
+      <header><span class="mark">⌁</span><div><strong>Quick prompt</strong><small id="context">No active thread</small></div><kbd id="shortcutLabel">Quick prompt</kbd></header>
+      <form id="quickForm">
+        <textarea id="quickInput" rows="2" placeholder="Ask Codex…"></textarea>
+        <button id="quickSend" disabled>↑</button>
+      </form>
+      <p id="hint">Enter to send · Shift+Enter for a new line</p>
+    </main>
+    <script src="companion.js"></script>
+  </body>
+</html>

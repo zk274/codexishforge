@@ -1,0 +1,47 @@
+export const DEFAULT_SHORTCUT = "CommandOrControl+Shift+Space";
+export const FALLBACK_SHORTCUT = "Alt+Shift+Space";
+export const SHORTCUT_OPTIONS = [
+  DEFAULT_SHORTCUT,
+  FALLBACK_SHORTCUT,
+  "CommandOrControl+Alt+Space",
+  "CommandOrControl+Shift+J",
+  null,
+];
+
+export const DEFAULT_DESKTOP_PREFERENCES = Object.freeze({
+  quickPromptShortcut: DEFAULT_SHORTCUT,
+  trayEnabled: true,
+  closeToTray: false,
+});
+
+export function normalizeDesktopPreferences(value = {}) {
+  const candidate = value && typeof value === "object" ? value : {};
+  const quickPromptShortcut = SHORTCUT_OPTIONS.includes(candidate.quickPromptShortcut)
+    ? candidate.quickPromptShortcut
+    : DEFAULT_DESKTOP_PREFERENCES.quickPromptShortcut;
+  const trayEnabled = candidate.trayEnabled !== false;
+  return {
+    quickPromptShortcut,
+    trayEnabled,
+    closeToTray: trayEnabled && candidate.closeToTray === true,
+  };
+}
+
+export function mergeDesktopPreferences(current, updates = {}) {
+  const normalized = normalizeDesktopPreferences(current);
+  const allowed = {};
+  for (const key of Object.keys(DEFAULT_DESKTOP_PREFERENCES)) {
+    if (Object.hasOwn(updates, key)) allowed[key] = updates[key];
+  }
+  return normalizeDesktopPreferences({ ...normalized, ...allowed });
+}
+
+export function shortcutCandidates(preferences) {
+  const requested = normalizeDesktopPreferences(preferences).quickPromptShortcut;
+  if (!requested) return [];
+  return requested === DEFAULT_SHORTCUT ? [DEFAULT_SHORTCUT, FALLBACK_SHORTCUT] : [requested];
+}
+
+export function shouldHideOnClose(preferences, { trayAvailable = false, isQuitting = false } = {}) {
+  return !isQuitting && trayAvailable && normalizeDesktopPreferences(preferences).closeToTray;
+}
