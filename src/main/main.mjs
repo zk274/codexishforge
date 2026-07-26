@@ -780,7 +780,7 @@ function createWindow({ show = true } = {}) {
     mainWindow = null;
     if (!isQuitting) app.quit();
   });
-  const captureArgument = process.argv.find((argument) => argument.startsWith("--capture-ui=") || argument.startsWith("--capture-long-thread-ui=") || argument.startsWith("--capture-diagnostics-ui=") || argument.startsWith("--capture-settings-ui=") || argument.startsWith("--capture-updates-ui=") || argument.startsWith("--capture-region-ui=") || argument.startsWith("--capture-camera-ui=") || argument.startsWith("--capture-live-camera-ui=") || argument.startsWith("--capture-camera-attachment-ui="));
+  const captureArgument = process.argv.find((argument) => argument.startsWith("--capture-ui=") || argument.startsWith("--capture-long-thread-ui=") || argument.startsWith("--capture-diagnostics-ui=") || argument.startsWith("--capture-settings-ui=") || argument.startsWith("--capture-accessibility-ui=") || argument.startsWith("--capture-updates-ui=") || argument.startsWith("--capture-region-ui=") || argument.startsWith("--capture-camera-ui=") || argument.startsWith("--capture-live-camera-ui=") || argument.startsWith("--capture-camera-attachment-ui="));
   if (captureArgument) mainWindow.webContents.once("did-finish-load", () => setTimeout(async () => {
     if (captureArgument.startsWith("--capture-long-thread-ui=")) {
       await mainWindow.webContents.executeJavaScript(`(() => {
@@ -833,6 +833,31 @@ function createWindow({ show = true } = {}) {
       await new Promise((resolve) => setTimeout(resolve, 500));
     } else if (captureArgument.startsWith("--capture-settings-ui=")) {
       await mainWindow.webContents.executeJavaScript("document.querySelector('#accountButton').click()");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    } else if (captureArgument.startsWith("--capture-accessibility-ui=")) {
+      await mainWindow.webContents.executeJavaScript(`(async () => {
+        document.querySelector("#accountButton").click();
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        const scale = document.querySelector("#textScaleSelect");
+        scale.value = "1.25";
+        scale.dispatchEvent(new Event("change", { bubbles: true }));
+        const contrast = document.querySelector("#highContrastInput");
+        if (!contrast.checked) contrast.click();
+        scale.scrollIntoView({ block: "center" });
+        scale.focus();
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        const dialog = document.querySelector(".auth-dialog");
+        const state = {
+          dialogOpen: !document.querySelector("#authOverlay").hidden,
+          dialogOwnsFocus: dialog.contains(document.activeElement),
+          backgroundInert: document.querySelector(".app-shell").inert && document.querySelector(".titlebar").inert,
+          highContrast: document.documentElement.classList.contains("high-contrast"),
+          scale: scale.value,
+        };
+        if (!state.dialogOpen || !state.dialogOwnsFocus || !state.backgroundInert || !state.highContrast || state.scale !== "1.25") {
+          throw new Error("Accessibility UI validation failed: " + JSON.stringify(state));
+        }
+      })()`);
       await new Promise((resolve) => setTimeout(resolve, 500));
     } else if (captureArgument.startsWith("--capture-updates-ui=")) {
       await mainWindow.webContents.executeJavaScript("document.querySelector('#accountButton').click()");

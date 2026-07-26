@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <a class="skip-link" href="#conversation">Skip to conversation</a>
     <div class="titlebar">
       <div class="brand-mark" aria-hidden="true">⌁</div>
       <span>Codex Linux</span>
@@ -30,38 +31,38 @@
           </button>
           <label class="search-box">
             <span>⌕</span>
-            <input id="threadSearch" type="search" placeholder="Search threads" />
+            <input id="threadSearch" type="search" placeholder="Search threads" aria-label="Search threads" />
           </label>
         </div>
 
-        <div class="thread-heading"><span>Threads</span><button id="refreshButton" title="Refresh">↻</button></div>
+        <div class="thread-heading"><span>Threads</span><button id="refreshButton" title="Refresh" aria-label="Refresh threads">↻</button></div>
         <nav id="threadList" class="thread-list" aria-label="Threads"></nav>
 
         <button class="account-card" id="accountButton" title="Account and Codex CLI settings">
-          <span class="status-dot" id="connectionDot"></span>
+          <span class="status-dot" id="connectionDot" aria-hidden="true"></span>
           <div><strong id="accountName">Connecting…</strong><small id="accountPlan">Codex CLI</small></div>
           <span class="account-chevron">›</span>
         </button>
       </aside>
 
-      <section class="workspace">
+      <section class="workspace" aria-label="Codex workspace">
         <header class="workspace-header">
           <div class="workspace-title">
             <strong id="threadTitle">New thread</strong>
             <span><i id="gitBranch" hidden>⑂ —</i><span id="projectPath">Choose a project to begin</span></span>
           </div>
           <div class="header-actions">
-            <button id="terminalButton" class="ghost-button" disabled><span>›_</span> Terminal <b id="terminalBadge" hidden></b></button>
-            <button id="diffButton" class="ghost-button" disabled><span>±</span> Changes <b id="diffBadge">0</b></button>
-            <button id="moreButton" class="icon-button" title="Thread details">•••</button>
+            <button id="terminalButton" class="ghost-button" disabled><span aria-hidden="true">›_</span> Terminal <b id="terminalBadge" hidden></b></button>
+            <button id="diffButton" class="ghost-button" disabled><span aria-hidden="true">±</span> Changes <b id="diffBadge">0</b></button>
+            <button id="moreButton" class="icon-button" title="Diagnostics" aria-label="Open diagnostics">•••</button>
           </div>
         </header>
 
-        <div class="conversation" id="conversation">
-          <section class="welcome" id="welcome">
+        <div class="conversation" id="conversation" tabindex="-1" aria-label="Conversation">
+          <section class="welcome" id="welcome" aria-labelledby="welcomeTitle">
             <div class="welcome-glyph">⌁</div>
             <p class="eyebrow">YOUR LINUX WORKSPACE</p>
-            <h1>What are we building?</h1>
+            <h1 id="welcomeTitle">What are we building?</h1>
             <p class="welcome-copy">Open a local project and work with Codex in a focused desktop interface. Your existing CLI login, config, skills, and threads stay in one place.</p>
             <button id="openProjectButton" class="open-project">Open a project <span>→</span></button>
             <div class="suggestions">
@@ -70,50 +71,50 @@
               <button data-prompt="Run the test suite, diagnose any failures, and fix them."><span>✓</span><div><b>Fix failing tests</b><small>Diagnose, repair, and verify</small></div></button>
             </div>
           </section>
-          <div id="messages" class="messages" hidden></div>
+          <div id="messages" class="messages" aria-label="Thread messages" hidden></div>
         </div>
 
         <footer class="composer-wrap">
-          <div class="composer" id="composer">
+          <div class="composer" id="composer" aria-label="Message composer">
             <div id="attachmentTray" class="attachment-tray" hidden></div>
-            <textarea id="promptInput" rows="1" placeholder="Ask Codex to work on this project…" disabled></textarea>
+            <textarea id="promptInput" rows="1" placeholder="Ask Codex to work on this project…" aria-label="Message Codex" disabled></textarea>
             <div class="composer-toolbar">
               <div class="composer-options">
-                <button id="attachButton" class="option-button" title="Attach files">＋</button>
-                <button id="screenshotButton" class="option-button" title="Take screenshot">▣</button>
-                <button id="cameraButton" class="option-button" title="Take camera photo">◉</button>
-                <button id="folderButton" class="option-button" title="Choose project">⌂ <span id="folderName">Project</span></button>
+                <button id="attachButton" class="option-button" title="Attach files" aria-label="Attach files">＋</button>
+                <button id="screenshotButton" class="option-button" title="Take screenshot" aria-label="Take screenshot">▣</button>
+                <button id="cameraButton" class="option-button" title="Take camera photo" aria-label="Take camera photo">◉</button>
+                <button id="folderButton" class="option-button" title="Choose project" aria-label="Choose project"><span aria-hidden="true">⌂</span> <span id="folderName">Project</span></button>
                 <select id="modelSelect" aria-label="Model"><option value="">Default model</option></select>
                 <select id="effortSelect" aria-label="Reasoning effort">
                   <option value="">Default effort</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option>
                 </select>
               </div>
-              <button id="sendButton" class="send-button" disabled title="Send (Ctrl+Enter)">↑</button>
-              <button id="stopButton" class="stop-button" hidden title="Stop turn">■</button>
+              <button id="sendButton" class="send-button" disabled title="Send (Ctrl+Enter)" aria-label="Send message">↑</button>
+              <button id="stopButton" class="stop-button" hidden title="Stop turn" aria-label="Stop current turn">■</button>
             </div>
           </div>
           <p class="composer-note">Codex can make mistakes. Review commands and changes before approval.</p>
         </footer>
       </section>
 
-      <aside id="diffPanel" class="diff-panel" aria-hidden="true">
-        <header><div><strong>Working changes</strong><span id="diffSummary">No changes yet</span></div><button id="closeDiffButton">×</button></header>
-        <nav class="diff-tabs"><button class="active" data-diff-view="working">Working</button><button data-diff-view="staged">Staged</button><button data-diff-view="turn">Current turn</button><button id="refreshGitButton" title="Refresh">↻</button></nav>
+      <aside id="diffPanel" class="diff-panel" aria-label="Git changes" aria-hidden="true">
+        <header><div><strong>Working changes</strong><span id="diffSummary">No changes yet</span></div><button id="closeDiffButton" aria-label="Close changes panel">×</button></header>
+        <nav class="diff-tabs" aria-label="Change views" role="tablist"><button class="active" data-diff-view="working" role="tab" aria-controls="diffContent">Working</button><button data-diff-view="staged" role="tab" aria-controls="diffContent">Staged</button><button data-diff-view="turn" role="tab" aria-controls="diffContent">Current turn</button><button id="refreshGitButton" title="Refresh" aria-label="Refresh Git changes">↻</button></nav>
         <div class="diff-body"><nav id="diffFiles" class="diff-files" aria-label="Changed files"></nav><pre id="diffContent">Changes made by Codex will appear here.</pre></div>
         <footer class="git-actions">
           <div><span id="gitSelection">Select a changed file</span><button id="gitPrimaryAction" hidden></button><button id="gitDiscardButton" class="danger-button" hidden>Discard</button></div>
-          <form id="gitCommitForm"><input id="gitCommitMessage" maxlength="10000" placeholder="Commit message for staged changes…" /><button id="gitCommitButton" disabled>Commit staged</button></form>
+          <form id="gitCommitForm"><input id="gitCommitMessage" maxlength="10000" placeholder="Commit message for staged changes…" aria-label="Commit message" /><button id="gitCommitButton" disabled>Commit staged</button></form>
         </footer>
       </aside>
 
-      <section id="terminalPanel" class="terminal-panel" aria-hidden="true">
+      <section id="terminalPanel" class="terminal-panel" aria-label="Project terminal" aria-hidden="true">
         <header>
           <nav id="terminalTabs" class="terminal-tabs" aria-label="Terminal tabs" role="tablist"></nav>
-          <div class="terminal-toolbar-actions"><button id="newTerminalButton" title="New terminal tab">＋</button><button id="restartTerminalButton" title="Restart active terminal">↻</button><button id="closeTerminalButton" title="Hide terminal panel">×</button></div>
+          <div class="terminal-toolbar-actions"><button id="newTerminalButton" title="New terminal tab" aria-label="New terminal tab">＋</button><button id="restartTerminalButton" title="Restart active terminal" aria-label="Restart active terminal">↻</button><button id="closeTerminalButton" title="Hide terminal panel" aria-label="Hide terminal panel">×</button></div>
         </header>
         <div class="terminal-meta"><strong id="terminalTitle">Project terminal</strong><span id="terminalStatus">No terminal tabs</span></div>
         <pre id="terminalOutput" tabindex="0"></pre>
-        <form id="terminalForm"><span>$</span><input id="terminalInput" autocomplete="off" spellcheck="false" placeholder="Type a command or terminal input…" /><button>Send</button></form>
+        <form id="terminalForm"><span aria-hidden="true">$</span><input id="terminalInput" autocomplete="off" spellcheck="false" placeholder="Type a command or terminal input…" aria-label="Terminal input" /><button aria-label="Send terminal input">Send</button></form>
       </section>
     </main>
 
@@ -135,7 +136,7 @@
 
     <div id="authOverlay" class="overlay" hidden>
       <section class="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="authTitle">
-        <button id="closeAuthButton" class="dialog-close" title="Close">×</button>
+        <button id="closeAuthButton" class="dialog-close" title="Close" aria-label="Close account and settings">×</button>
         <div class="auth-mark">⌁</div>
         <p class="eyebrow" id="authEyebrow">CODEX ACCOUNT</p>
         <h2 id="authTitle">Connect Codex</h2>
@@ -162,6 +163,19 @@
           <p id="trayPreferenceStatus" class="setting-status">Checking tray support…</p>
           <label class="toggle-setting"><input id="launchAtLoginInput" type="checkbox" /><span><strong>Launch at login</strong><small>Start Codex in the background and keep it available from the tray.</small></span></label>
           <p id="autostartPreferenceStatus" class="setting-status">Checking login startup…</p>
+          <p class="settings-subheading">ACCESSIBILITY</p>
+          <label class="setting-field" for="textScaleSelect">
+            <span>Text size</span>
+            <select id="textScaleSelect">
+              <option value="1">100%</option>
+              <option value="1.1">110%</option>
+              <option value="1.25">125%</option>
+              <option value="1.5">150%</option>
+            </select>
+          </label>
+          <label class="toggle-setting"><input id="reduceMotionInput" type="checkbox" /><span><strong>Reduce motion</strong><small>Remove nonessential animation and smooth transitions.</small></span></label>
+          <label class="toggle-setting"><input id="highContrastInput" type="checkbox" /><span><strong>High contrast</strong><small>Increase text, border, control, and focus visibility.</small></span></label>
+          <p id="accessibilityPreferenceStatus" class="setting-status">System contrast and reduced-motion preferences are also respected.</p>
           <p class="settings-subheading">NOTIFICATIONS</p>
           <label class="toggle-setting"><input id="notifyTurnCompleteInput" type="checkbox" /><span><strong>Completed turns</strong><small>Notify when Codex finishes while the app is unfocused.</small></span></label>
           <label class="toggle-setting"><input id="notifyApprovalInput" type="checkbox" /><span><strong>Approvals and questions</strong><small>Notify when Codex is waiting for your decision or answer.</small></span></label>
@@ -196,17 +210,17 @@
 
     <div id="screenshotOverlay" class="overlay" hidden>
       <section class="capture-dialog" role="dialog" aria-modal="true" aria-labelledby="captureTitle">
-        <button id="closeCaptureButton" class="dialog-close" title="Close">×</button>
+        <button id="closeCaptureButton" class="dialog-close" title="Close" aria-label="Close screenshot picker">×</button>
         <p class="eyebrow">ATTACH SCREENSHOT</p>
         <h2 id="captureTitle">Choose a screen or window</h2>
-        <p id="captureHint" class="capture-hint">Capture the full source, or select just the part you need.</p>
+        <p id="captureHint" class="capture-hint" aria-live="polite">Capture the full source, or select just the part you need.</p>
         <div id="captureSources" class="capture-sources"></div>
       </section>
     </div>
 
     <div id="cameraOverlay" class="overlay" hidden>
       <section class="camera-dialog" role="dialog" aria-modal="true" aria-labelledby="cameraTitle">
-        <button id="closeCameraButton" class="dialog-close" title="Close camera">×</button>
+        <button id="closeCameraButton" class="dialog-close" title="Close camera" aria-label="Close camera">×</button>
         <p class="eyebrow">ATTACH CAMERA PHOTO</p>
         <h2 id="cameraTitle">Take a photo</h2>
         <p id="cameraDescription" class="camera-description">Camera video stays on this device. Only the still image you capture is attached.</p>
@@ -216,7 +230,7 @@
         </label>
         <div class="camera-preview">
           <video id="cameraVideo" autoplay muted playsinline aria-label="Live camera preview"></video>
-          <div id="cameraPreviewState" class="camera-preview-state">Requesting camera access…</div>
+          <div id="cameraPreviewState" class="camera-preview-state" aria-live="polite">Requesting camera access…</div>
         </div>
         <div class="camera-actions">
           <span id="cameraResolution">Waiting for video…</span>
@@ -234,16 +248,16 @@
           <p class="eyebrow">SELECT SCREENSHOT REGION</p>
           <h2 id="regionTitle">Drag over the area to attach</h2>
         </div>
-        <button id="closeRegionButton" class="region-close" title="Cancel region selection">×</button>
+        <button id="closeRegionButton" class="region-close" title="Cancel region selection" aria-label="Cancel region selection">×</button>
       </header>
       <div class="region-workspace">
-        <div id="regionCanvas" class="region-canvas">
+        <div id="regionCanvas" class="region-canvas" tabindex="0" role="group" aria-label="Screenshot region selection. Use arrow keys to move the selection and Shift plus arrow keys to resize it.">
           <img id="regionImage" alt="" draggable="false" />
           <div id="regionSelection" class="region-selection" hidden></div>
         </div>
       </div>
       <footer class="region-footer">
-        <span id="regionStatus">Drag anywhere on the image to select a region.</span>
+        <span id="regionStatus" aria-live="polite">Drag over the image, or use the arrow keys, to select a region.</span>
         <div>
           <button id="cancelRegionButton" class="secondary-button">Cancel</button>
           <button id="captureRegionButton" class="primary-action" disabled>Attach region</button>
@@ -253,7 +267,7 @@
 
     <div id="diagnosticsOverlay" class="overlay" hidden>
       <section class="diagnostics-dialog" role="dialog" aria-modal="true" aria-labelledby="diagnosticsTitle">
-        <button id="closeDiagnosticsButton" class="dialog-close" title="Close">×</button>
+        <button id="closeDiagnosticsButton" class="dialog-close" title="Close" aria-label="Close diagnostics">×</button>
         <p class="eyebrow">SUPPORT &amp; RECOVERY</p>
         <h2 id="diagnosticsTitle">Diagnostics</h2>
         <p class="diagnostics-copy">This report excludes credentials and includes recent redacted application events.</p>
@@ -267,7 +281,7 @@
       </section>
     </div>
 
-    <div id="toast" class="toast" role="status" hidden></div>
+    <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
     <script src="vendor/richtext.js"></script>
     <script type="module" src="app.js"></script>
   </body>

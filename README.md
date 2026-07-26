@@ -24,6 +24,7 @@ An unofficial Linux desktop client powered by the installed OpenAI Codex CLI. It
 - Open `codex-linux://` links in one running app instance to focus Codex, resume a thread, or confirm and open a local project
 - Check stable or beta release channels, explicitly download verified updates, and restart to install supported Linux packages
 - Receive configurable, privacy-safe notifications for completed turns, approval requests, questions, and background terminal exits
+- Use the complete interface by keyboard, with visible focus, contained dialog focus, reduced motion, text scaling, high contrast, and system accessibility preference support
 - Restore the last active thread after restarting
 - Preflight the installed CLI's version-specific app-server schema, blocking incompatible builds and gating unavailable optional features
 - Collect rotating, credential-redacted diagnostics with copy/export controls
@@ -51,6 +52,12 @@ npm start
 ```
 
 The development launcher removes `ELECTRON_RUN_AS_NODE` because Codex-hosted shells may set it. This only affects local development; packaged desktop launches use Electron normally.
+
+## Keyboard and accessibility
+
+Open account settings with **Ctrl+,** to choose 100–150% text size, reduced motion, or high contrast. Codex also follows the desktop's reduced-motion, increased-contrast, and forced-color preferences.
+
+Use **Ctrl+N** for a new thread, **Ctrl+K** or **/** to search threads, **Ctrl+J** for the terminal, **Alt+Left** to return home, and **F6** to cycle through the primary work areas. Arrow keys navigate thread lists and tabs. In region capture, arrow keys move the selection and **Shift+Arrow** resizes it. Dialogs contain keyboard focus and close with **Escape**.
 
 ## Deep links
 

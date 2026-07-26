@@ -35,6 +35,7 @@ const els = {
   retryConnection: $("#retryConnectionButton"), chooseCli: $("#chooseCliButton"), signIn: $("#signInButton"), logout: $("#logoutButton"), authDocs: $("#authDocsButton"),
   shortcutSelect: $("#shortcutSelect"), shortcutPreferenceStatus: $("#shortcutPreferenceStatus"), trayEnabled: $("#trayEnabledInput"), closeToTray: $("#closeToTrayInput"), trayPreferenceStatus: $("#trayPreferenceStatus"),
   launchAtLogin: $("#launchAtLoginInput"), autostartPreferenceStatus: $("#autostartPreferenceStatus"),
+  textScale: $("#textScaleSelect"), reduceMotion: $("#reduceMotionInput"), highContrast: $("#highContrastInput"), accessibilityPreferenceStatus: $("#accessibilityPreferenceStatus"),
   notifyTurnComplete: $("#notifyTurnCompleteInput"), notifyApproval: $("#notifyApprovalInput"), notifyTerminal: $("#notifyTerminalInput"), notificationPreferenceStatus: $("#notificationPreferenceStatus"),
   updateChannel: $("#updateChannelSelect"), autoCheckUpdates: $("#autoCheckUpdatesInput"), updatePreferenceStatus: $("#updatePreferenceStatus"),
   checkUpdates: $("#checkUpdatesButton"), downloadUpdate: $("#downloadUpdateButton"), installUpdate: $("#installUpdateButton"), viewReleases: $("#viewReleasesButton"),
@@ -50,6 +51,98 @@ const els = {
   more: $("#moreButton"), diagnosticsOverlay: $("#diagnosticsOverlay"), closeDiagnostics: $("#closeDiagnosticsButton"), diagnosticsStatus: $("#diagnosticsStatus"), diagnosticsContent: $("#diagnosticsContent"),
   showLog: $("#showLogButton"), copyDiagnostics: $("#copyDiagnosticsButton"), exportDiagnostics: $("#exportDiagnosticsButton"),
 };
+
+const reduceMotionQuery = matchMedia("(prefers-reduced-motion: reduce)");
+const highContrastQuery = matchMedia("(prefers-contrast: more)");
+const dialogReturnFocus = new WeakMap();
+
+function isVisible(element) {
+  return Boolean(element?.isConnected && !element.closest("[hidden]") && element.getClientRects().length);
+}
+
+function focusableElements(container) {
+  return [...container.querySelectorAll("button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href],[tabindex]:not([tabindex='-1'])")]
+    .filter(isVisible);
+}
+
+function modalOverlays() {
+  return [els.overlay, els.authOverlay, els.screenshotOverlay, els.cameraOverlay, els.diagnosticsOverlay, els.regionOverlay];
+}
+
+function activeModal() {
+  return modalOverlays().findLast((overlay) => !overlay.hidden) || null;
+}
+
+function syncModalInert() {
+  const modalOpen = Boolean(activeModal());
+  document.querySelector(".titlebar").inert = modalOpen;
+  document.querySelector(".app-shell").inert = modalOpen;
+}
+
+function showDialog(overlay, preferredFocus = null) {
+  if (overlay.hidden) {
+    const current = document.activeElement;
+    dialogReturnFocus.set(overlay, current instanceof HTMLElement ? current : null);
+  }
+  overlay.hidden = false;
+  syncModalInert();
+  requestAnimationFrame(() => {
+    const target = isVisible(preferredFocus) ? preferredFocus : focusableElements(overlay)[0];
+    target?.focus();
+  });
+}
+
+function hideDialog(overlay, fallbackFocus = els.settings) {
+  if (overlay.hidden) return;
+  overlay.hidden = true;
+  syncModalInert();
+  const previous = dialogReturnFocus.get(overlay);
+  dialogReturnFocus.delete(overlay);
+  requestAnimationFrame(() => (isVisible(previous) ? previous : fallbackFocus)?.focus());
+}
+
+function trapModalFocus(event, overlay) {
+  if (event.key !== "Tab") return false;
+  const focusable = focusableElements(overlay);
+  if (!focusable.length) {
+    event.preventDefault();
+    return true;
+  }
+  const first = focusable[0], last = focusable.at(-1);
+  if (!overlay.contains(document.activeElement)) {
+    event.preventDefault();
+    first.focus();
+  } else if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+  return true;
+}
+
+function closeActiveModal(overlay) {
+  if (overlay === els.overlay) {
+    els.deny.focus();
+    return;
+  }
+  if (overlay === els.cameraOverlay) closeCamera();
+  else if (overlay === els.regionOverlay) closeRegionCapture();
+  else if (overlay === els.screenshotOverlay) hideDialog(els.screenshotOverlay, els.screenshot);
+  else if (overlay === els.diagnosticsOverlay) hideDialog(els.diagnosticsOverlay, els.more);
+  else if (overlay === els.authOverlay) hideDialog(els.authOverlay, els.settings);
+}
+
+function applyAccessibilityPreferences(preferences) {
+  if (!preferences) return;
+  const reduceMotion = preferences.reduceMotion || reduceMotionQuery.matches;
+  const highContrast = preferences.highContrast || highContrastQuery.matches;
+  document.documentElement.classList.toggle("reduce-motion", reduceMotion);
+  document.documentElement.classList.toggle("high-contrast", highContrast);
+  try { api.setTextScale(preferences.textScale); }
+  catch (error) { console.warn("Unable to apply text scale", error); }
+}
 
 function basename(value) { return value?.replace(/\/$/, "").split("/").pop() || "Project"; }
 function relativeTime(timestamp) {
@@ -138,6 +231,10 @@ function renderDesktopPreferences() {
   els.notifyTurnComplete.checked = preferences.notifyTurnComplete;
   els.notifyApproval.checked = preferences.notifyApproval;
   els.notifyTerminal.checked = preferences.notifyTerminal;
+  els.textScale.value = String(preferences.textScale);
+  els.reduceMotion.checked = preferences.reduceMotion;
+  els.highContrast.checked = preferences.highContrast;
+  applyAccessibilityPreferences(preferences);
   for (const input of [els.notifyTurnComplete, els.notifyApproval, els.notifyTerminal]) input.disabled = !desktop.notifications?.supported;
   els.shortcutPreferenceStatus.className = "setting-status";
   if (!preferences.quickPromptShortcut) els.shortcutPreferenceStatus.textContent = "Global quick prompt is disabled.";
@@ -177,6 +274,14 @@ function renderDesktopPreferences() {
       ? "Isolated test autostart is disabled."
       : "Codex will not start automatically.";
   }
+  const systemModes = [
+    reduceMotionQuery.matches ? "system reduced motion" : null,
+    highContrastQuery.matches ? "system high contrast" : null,
+  ].filter(Boolean);
+  els.accessibilityPreferenceStatus.className = "setting-status";
+  els.accessibilityPreferenceStatus.textContent = systemModes.length
+    ? `Also active: ${systemModes.join(" and ")}.`
+    : "System contrast and reduced-motion preferences are also respected.";
   els.notificationPreferenceStatus.className = "setting-status";
   if (desktop.notifications?.supported) {
     els.notificationPreferenceStatus.classList.add("good");
@@ -250,7 +355,7 @@ async function runUpdateAction(action) {
 }
 
 async function openAuth() {
-  els.authOverlay.hidden = false;
+  showDialog(els.authOverlay, els.closeAuth);
   try { state.cli = await api.cliStatus(); } catch (error) { state.connectionError = error.message; }
   try { state.desktop = await api.desktopPreferences(); } catch (error) { console.warn("Unable to read desktop preferences", error); }
   try { state.updates = await api.updateState(); } catch (error) { console.warn("Unable to read update state", error); }
@@ -259,7 +364,7 @@ async function openAuth() {
 }
 function diagnosticPill(label, condition) { const pill = document.createElement("span"); pill.className = `diagnostics-pill ${condition === "warn" ? "warn" : condition ? "good" : "bad"}`; pill.textContent = label; return pill; }
 async function openDiagnostics() {
-  els.diagnosticsOverlay.hidden = false; els.diagnosticsContent.textContent = "Collecting diagnostics…"; els.diagnosticsStatus.replaceChildren();
+  showDialog(els.diagnosticsOverlay, els.closeDiagnostics); els.diagnosticsContent.textContent = "Collecting diagnostics…"; els.diagnosticsStatus.replaceChildren();
   try {
     const report = await api.diagnostics(); state.compatibility = report.codex.compatibility;
     els.diagnosticsStatus.append(
@@ -291,6 +396,8 @@ function renderThreads() {
     const title = document.createElement("strong"); title.textContent = thread.name || thread.preview || "Untitled thread";
     const time = document.createElement("time"); time.textContent = relativeTime(thread.updatedAt);
     const project = document.createElement("small"); project.textContent = basename(thread.cwd);
+    button.title = `${title.textContent} · ${project.textContent}`;
+    if (thread.id === state.activeThread?.id) button.setAttribute("aria-current", "page");
     button.append(title, time, project); button.addEventListener("click", () => resumeThread(thread.id)); els.threadList.append(button);
   }
 }
@@ -308,8 +415,8 @@ async function showHome() {
   state.activeThread = null; state.turns = []; state.activeTurnId = null; state.diff = ""; state.git = null; state.gitDiffs = { working: "", staged: "" }; state.gitSelection = null; state.gitFileDiff = ""; state.attachments = [];
   els.threadTitle.textContent = "New thread"; els.projectPath.textContent = "Choose a project to begin"; els.folderName.textContent = "Project";
   els.home.disabled = true; els.welcome.hidden = false; els.messages.hidden = true; els.messages.replaceChildren(); els.gitBranch.hidden = true; els.terminalButton.disabled = true;
-  els.diffPanel.classList.remove("open"); els.diffPanel.setAttribute("aria-hidden", "true");
-  els.terminalPanel.classList.remove("open"); els.terminalPanel.setAttribute("aria-hidden", "true");
+  closeDiffPanel({ restoreFocus: false });
+  closeTerminalPanel({ restoreFocus: false });
   renderAttachments(); renderThreads(); renderDiff(); renderTerminal(); updateComposer();
   els.conversation.scrollTop = 0;
   els.openProject.focus();
@@ -385,7 +492,12 @@ function renderDiff() {
   const changedCount = state.git?.entries?.length || [...state.diff.matchAll(/^diff --git /gm)].length;
   els.diffBadge.textContent = changedCount; els.diffSummary.textContent = `${state.git?.branch || "Repository"} · ${changedCount} change${changedCount === 1 ? "" : "s"}`;
   els.diffButton.disabled = !state.activeThread;
-  for (const tab of document.querySelectorAll("[data-diff-view]")) tab.classList.toggle("active", tab.dataset.diffView === state.diffView);
+  for (const tab of document.querySelectorAll("[data-diff-view]")) {
+    const active = tab.dataset.diffView === state.diffView;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", String(active));
+    tab.tabIndex = active ? 0 : -1;
+  }
   for (const tab of document.querySelectorAll("[data-diff-view='turn']")) { tab.disabled = !protocolFeatureAvailable("changeStreaming"); tab.title = tab.disabled ? "Update Codex to enable current-turn diff streaming" : ""; }
   els.diffFiles.replaceChildren();
   for (const entry of files) {
@@ -541,7 +653,7 @@ function closeCamera() {
   cameraCapture.requestId += 1;
   stopCameraStream();
   cameraCapture.devices = [];
-  els.cameraOverlay.hidden = true;
+  hideDialog(els.cameraOverlay, els.camera);
   els.cameraDevice.replaceChildren();
   els.cameraDeviceField.hidden = true;
   els.captureCamera.disabled = true;
@@ -549,8 +661,8 @@ function closeCamera() {
 
 function openCamera() {
   closeRegionCapture();
-  els.screenshotOverlay.hidden = true;
-  els.cameraOverlay.hidden = false;
+  hideDialog(els.screenshotOverlay, els.camera);
+  showDialog(els.cameraOverlay, els.cancelCamera);
   els.cameraDescription.textContent = "Camera video stays on this device. Only the still image you capture is attached.";
   startCamera().catch((error) => {
     if (!els.cameraOverlay.hidden) handleCameraFailure(error);
@@ -595,7 +707,7 @@ function renderRegionSelection() {
   els.regionSelection.hidden = !selection;
   if (!selection) {
     els.captureRegion.disabled = true;
-    els.regionStatus.textContent = "Drag anywhere on the image to select a region.";
+    els.regionStatus.textContent = "Drag on the image, or use the arrow keys, to select a region.";
     return;
   }
   Object.assign(els.regionSelection.style, {
@@ -616,7 +728,7 @@ function renderRegionSelection() {
 }
 
 function closeRegionCapture() {
-  els.regionOverlay.hidden = true;
+  hideDialog(els.regionOverlay, els.screenshot);
   regionCapture.source = null;
   regionCapture.start = null;
   regionCapture.selection = null;
@@ -631,11 +743,11 @@ function startRegionCapture(source) {
   regionCapture.start = null;
   regionCapture.selection = null;
   regionCapture.dragging = false;
-  els.screenshotOverlay.hidden = true;
+  hideDialog(els.screenshotOverlay, els.screenshot);
   els.regionTitle.textContent = `Select part of ${source.name}`;
   els.regionImage.alt = `Captured preview of ${source.name}`;
   els.regionImage.src = source.thumbnail;
-  els.regionOverlay.hidden = false;
+  showDialog(els.regionOverlay, els.closeRegion);
   renderRegionSelection();
 }
 
@@ -656,7 +768,7 @@ function updateRegionDrag(event) {
 
 async function showCaptureSources() {
   closeRegionCapture();
-  els.screenshotOverlay.hidden = false; els.captureHint.textContent = "Capture the full source, or select just the part you need."; els.captureSources.textContent = "Loading screens and windows…";
+  showDialog(els.screenshotOverlay, els.closeCapture); els.captureHint.textContent = "Capture the full source, or select just the part you need."; els.captureSources.textContent = "Loading screens and windows…";
   try {
     const sources = await api.captureSources(); els.captureSources.replaceChildren();
     if (!sources.length) {
@@ -673,13 +785,13 @@ async function showCaptureSources() {
       const region = document.createElement("button"); region.className = "capture-region-action"; region.textContent = "Select region";
       full.addEventListener("click", async () => {
         full.disabled = true;
-        try { addAttachments([await api.captureSource(source.id)]); els.screenshotOverlay.hidden = true; }
+        try { addAttachments([await api.captureSource(source.id)]); hideDialog(els.screenshotOverlay, els.screenshot); }
         catch (error) { full.disabled = false; showError(error); }
       });
       region.addEventListener("click", () => startRegionCapture(source));
       actions.append(full, region); card.append(image, label, actions); els.captureSources.append(card);
     }
-  } catch (error) { showError(error); els.screenshotOverlay.hidden = true; }
+  } catch (error) { showError(error); hideDialog(els.screenshotOverlay, els.screenshot); }
 }
 
 async function chooseAndStartThread(initialPrompt = "") {
@@ -702,12 +814,25 @@ async function sendTurn() {
 }
 function decodeBase64(value) { const binary = atob(value || ""); return new TextDecoder().decode(Uint8Array.from(binary, (character) => character.charCodeAt(0))); }
 function terminalPanelVisible() { return els.terminalPanel.classList.contains("open"); }
+function closeTerminalPanel({ restoreFocus = true } = {}) {
+  if (!terminalPanelVisible()) return;
+  els.terminalPanel.classList.remove("open");
+  els.terminalPanel.setAttribute("aria-hidden", "true");
+  if (restoreFocus) els.terminalButton.focus();
+}
+function closeDiffPanel({ restoreFocus = true } = {}) {
+  if (!els.diffPanel.classList.contains("open")) return;
+  els.diffPanel.classList.remove("open");
+  els.diffPanel.setAttribute("aria-hidden", "true");
+  if (restoreFocus) els.diffButton.focus();
+}
 function renderTerminal() {
   const terminal = activeTerminal(state.terminals);
   els.terminalTabs.replaceChildren();
   for (const tab of state.terminals.tabs) {
     const item = document.createElement("div"); item.className = `terminal-tab${tab.id === state.terminals.activeId ? " active" : ""}`;
-    const select = document.createElement("button"); select.className = "terminal-tab-select"; select.title = `${tab.title} · ${tab.status} · ${tab.cwd}`; select.setAttribute("role", "tab"); select.setAttribute("aria-selected", String(tab.id === state.terminals.activeId));
+    const active = tab.id === state.terminals.activeId;
+    const select = document.createElement("button"); select.className = "terminal-tab-select"; select.title = `${tab.title} · ${tab.status} · ${tab.cwd}`; select.setAttribute("role", "tab"); select.setAttribute("aria-controls", "terminalOutput"); select.setAttribute("aria-selected", String(active)); select.tabIndex = active ? 0 : -1;
     const dot = document.createElement("span"); dot.className = `terminal-tab-dot ${tab.status}${tab.unread ? " unread" : ""}`;
     const title = document.createElement("span"); title.textContent = tab.title;
     const status = document.createElement("span"); status.className = "terminal-tab-state"; status.textContent = tab.unread ? "new output" : tab.status;
@@ -828,8 +953,7 @@ async function activateNotificationTarget(target = {}) {
   }
   if (target.kind === "request") {
     if (!state.currentRequest) return;
-    els.overlay.hidden = false;
-    (els.allow.hidden ? els.deny : els.allow).focus();
+    showDialog(els.overlay, els.allow.hidden ? els.deny : els.allow);
     return;
   }
   if (target.kind === "terminal") {
@@ -895,8 +1019,8 @@ async function flushPendingDeepLinks() {
 }
 
 function showNextRequest() {
-  state.currentRequest = state.requestQueue.shift() || null; if (!state.currentRequest) { els.overlay.hidden = true; return; }
-  const { method, params } = state.currentRequest; els.overlay.hidden = false; els.requestQuestions.replaceChildren(); els.requestCommand.hidden = false; els.allowSession.hidden = false; els.allow.hidden = false;
+  state.currentRequest = state.requestQueue.shift() || null; if (!state.currentRequest) { hideDialog(els.overlay, els.prompt); return; }
+  const { method, params } = state.currentRequest; els.requestQuestions.replaceChildren(); els.requestCommand.hidden = false; els.allowSession.hidden = false; els.allow.hidden = false;
   els.deny.textContent = "Deny"; els.allow.textContent = "Allow once"; els.allowSession.textContent = "Allow for session";
   if (method === "item/commandExecution/requestApproval") { els.requestKind.textContent = "COMMAND APPROVAL"; els.requestTitle.textContent = "Codex wants to run a command"; els.requestReason.textContent = params.reason || `In ${params.cwd || "the current project"}`; els.requestCommand.textContent = params.command || "Command details unavailable"; }
   else if (method === "item/fileChange/requestApproval") { els.requestKind.textContent = "FILE APPROVAL"; els.requestTitle.textContent = "Codex wants to change files"; els.requestReason.textContent = params.reason || "Review the pending changes before allowing them."; els.requestCommand.textContent = params.grantRoot ? `Write access requested: ${params.grantRoot}` : state.diff || "File change details will appear in Changes."; }
@@ -928,6 +1052,7 @@ function showNextRequest() {
       else { control = document.createElement("input"); control.type = question.isSecret ? "password" : "text"; }
       control.dataset.questionId = question.id; label.append(control); els.requestQuestions.append(label); }
   } else { els.requestKind.textContent = "UNSUPPORTED REQUEST"; els.requestTitle.textContent = "Codex needs an unavailable capability"; els.requestReason.textContent = "This early Linux client cannot safely answer this request."; els.requestCommand.textContent = method; els.allowSession.hidden = true; els.allow.hidden = true; els.deny.textContent = "Dismiss"; }
+  showDialog(els.overlay, els.requestQuestions.querySelector("input,select,textarea") || els.deny);
 }
 async function answerCurrent(action) {
   const request = state.currentRequest; if (!request) return;
@@ -996,13 +1121,30 @@ api.onEvent(async (event) => {
 });
 els.newThread.addEventListener("click", () => chooseAndStartThread().catch(showError)); els.openProject.addEventListener("click", () => chooseAndStartThread().catch(showError)); els.folder.addEventListener("click", () => chooseAndStartThread().catch(showError));
 els.refresh.addEventListener("click", refreshThreads); els.threadSearch.addEventListener("input", renderThreads);
+els.threadSearch.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowDown") return;
+  const firstThread = els.threadList.querySelector(".thread-item");
+  if (firstThread) { event.preventDefault(); firstThread.focus(); }
+});
+els.threadList.addEventListener("keydown", (event) => {
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  const threads = [...els.threadList.querySelectorAll(".thread-item")];
+  if (!threads.length) return;
+  event.preventDefault();
+  const current = Math.max(0, threads.indexOf(document.activeElement));
+  const target = event.key === "Home" ? 0
+    : event.key === "End" ? threads.length - 1
+      : event.key === "ArrowDown" ? Math.min(threads.length - 1, current + 1)
+        : Math.max(0, current - 1);
+  threads[target].focus();
+});
 els.prompt.addEventListener("input", () => { els.prompt.style.height = "auto"; els.prompt.style.height = `${Math.min(els.prompt.scrollHeight, 180)}px`; updateComposer(); });
 els.prompt.addEventListener("keydown", (event) => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); sendTurn(); } }); els.send.addEventListener("click", sendTurn);
 els.prompt.addEventListener("paste", async (event) => { if ([...event.clipboardData.files].some((file) => file.type.startsWith("image/"))) { event.preventDefault(); try { const image = await api.clipboardImage(); if (image) addAttachments([image]); } catch (error) { showError(error); } } });
 for (const eventName of ["dragenter", "dragover"]) els.composer.addEventListener(eventName, (event) => { event.preventDefault(); els.composer.classList.add("dragging"); });
 for (const eventName of ["dragleave", "drop"]) els.composer.addEventListener(eventName, (event) => { event.preventDefault(); els.composer.classList.remove("dragging"); });
 els.composer.addEventListener("drop", async (event) => { try { const paths = [...event.dataTransfer.files].map((file) => api.pathForFile(file)).filter(Boolean); addAttachments(await api.prepareAttachments(paths)); } catch (error) { showError(error); } });
-els.attach.addEventListener("click", chooseAttachments); els.screenshot.addEventListener("click", showCaptureSources); els.closeCapture.addEventListener("click", () => { els.screenshotOverlay.hidden = true; });
+els.attach.addEventListener("click", chooseAttachments); els.screenshot.addEventListener("click", showCaptureSources); els.closeCapture.addEventListener("click", () => hideDialog(els.screenshotOverlay, els.screenshot));
 els.camera.addEventListener("click", openCamera);
 for (const button of [els.closeCamera, els.cancelCamera]) button.addEventListener("click", closeCamera);
 els.cameraDevice.addEventListener("change", () => startCamera(els.cameraDevice.value).catch(handleCameraFailure));
@@ -1031,7 +1173,34 @@ els.regionCanvas.addEventListener("pointercancel", () => {
   regionCapture.start = null;
   renderRegionSelection();
 });
-els.regionImage.addEventListener("load", renderRegionSelection);
+els.regionCanvas.addEventListener("keydown", (event) => {
+  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key) || !regionCapture.source || !els.regionImage.complete) return;
+  event.preventDefault();
+  const bounds = els.regionCanvas.getBoundingClientRect();
+  const step = event.ctrlKey || event.metaKey ? 24 : 8;
+  const selection = regionCapture.selection || {
+    x: Math.round(bounds.width * 0.2),
+    y: Math.round(bounds.height * 0.2),
+    width: Math.round(bounds.width * 0.6),
+    height: Math.round(bounds.height * 0.6),
+  };
+  let { x, y, width, height } = selection;
+  const horizontal = event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
+  const vertical = event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
+  if (event.shiftKey) {
+    width = Math.max(4, Math.min(bounds.width - x, width + horizontal));
+    height = Math.max(4, Math.min(bounds.height - y, height + vertical));
+  } else {
+    x = Math.max(0, Math.min(bounds.width - width, x + horizontal));
+    y = Math.max(0, Math.min(bounds.height - height, y + vertical));
+  }
+  regionCapture.selection = { x, y, width, height };
+  renderRegionSelection();
+});
+els.regionImage.addEventListener("load", () => {
+  renderRegionSelection();
+  els.regionCanvas.focus();
+});
 for (const button of [els.closeRegion, els.cancelRegion]) button.addEventListener("click", closeRegionCapture);
 els.captureRegion.addEventListener("click", async () => {
   const source = regionCapture.source;
@@ -1049,11 +1218,36 @@ els.captureRegion.addEventListener("click", async () => {
   }
 });
 els.stop.addEventListener("click", async () => { try { await api.interruptTurn({ threadId: state.activeThread.id, turnId: state.activeTurnId }); } catch (error) { showError(error); } });
-els.diffButton.addEventListener("click", () => { refreshGit(); els.diffPanel.classList.add("open"); els.diffPanel.setAttribute("aria-hidden", "false"); }); els.closeDiff.addEventListener("click", () => { els.diffPanel.classList.remove("open"); els.diffPanel.setAttribute("aria-hidden", "true"); });
-for (const tab of document.querySelectorAll("[data-diff-view]")) tab.addEventListener("click", async () => { state.diffView = tab.dataset.diffView; state.gitSelection = null; state.gitFileDiff = ""; renderDiff(); const first = gitFilesForView()[0]; if (first) await selectGitFile(first.path); }); els.refreshGit.addEventListener("click", refreshGit);
+els.diffButton.addEventListener("click", () => { refreshGit(); els.diffPanel.classList.add("open"); els.diffPanel.setAttribute("aria-hidden", "false"); els.closeDiff.focus(); }); els.closeDiff.addEventListener("click", () => closeDiffPanel());
+for (const tab of document.querySelectorAll("[data-diff-view]")) tab.addEventListener("click", async () => { state.diffView = tab.dataset.diffView; state.gitSelection = null; state.gitFileDiff = ""; renderDiff(); const first = gitFilesForView()[0]; if (first) await selectGitFile(first.path); });
+document.querySelector(".diff-tabs").addEventListener("keydown", (event) => {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key) || !event.target.matches("[data-diff-view]")) return;
+  const tabs = [...document.querySelectorAll("[data-diff-view]:not(:disabled)")];
+  const current = Math.max(0, tabs.indexOf(event.target));
+  const target = event.key === "Home" ? 0
+    : event.key === "End" ? tabs.length - 1
+      : event.key === "ArrowRight" ? (current + 1) % tabs.length
+        : (current - 1 + tabs.length) % tabs.length;
+  event.preventDefault();
+  tabs[target].focus();
+  tabs[target].click();
+});
+els.refreshGit.addEventListener("click", refreshGit);
 els.gitPrimary.addEventListener("click", () => runGitAction(state.diffView === "staged" ? "unstage" : "stage")); els.gitDiscard.addEventListener("click", () => runGitAction("discard"));
 els.gitCommitMessage.addEventListener("input", renderDiff); els.gitCommitForm.addEventListener("submit", (event) => { event.preventDefault(); commitStaged(); });
-els.terminalButton.addEventListener("click", openTerminal); els.closeTerminal.addEventListener("click", () => { els.terminalPanel.classList.remove("open"); els.terminalPanel.setAttribute("aria-hidden", "true"); }); els.newTerminal.addEventListener("click", () => startTerminal().catch(showError)); els.restartTerminal.addEventListener("click", restartActiveTerminal);
+els.terminalButton.addEventListener("click", openTerminal); els.closeTerminal.addEventListener("click", () => closeTerminalPanel()); els.newTerminal.addEventListener("click", () => startTerminal().catch(showError)); els.restartTerminal.addEventListener("click", restartActiveTerminal);
+els.terminalTabs.addEventListener("keydown", (event) => {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key) || !event.target.matches(".terminal-tab-select")) return;
+  const tabs = [...els.terminalTabs.querySelectorAll(".terminal-tab-select")];
+  const current = Math.max(0, tabs.indexOf(event.target));
+  const target = event.key === "Home" ? 0
+    : event.key === "End" ? tabs.length - 1
+      : event.key === "ArrowRight" ? (current + 1) % tabs.length
+        : (current - 1 + tabs.length) % tabs.length;
+  event.preventDefault();
+  tabs[target].focus();
+  tabs[target].click();
+});
 els.terminalForm.addEventListener("submit", async (event) => {
   event.preventDefault(); const data = els.terminalInput.value, terminal = activeTerminal(state.terminals);
   if (!data || terminal?.status !== "running") return;
@@ -1073,11 +1267,14 @@ els.deny.addEventListener("click", () => answerCurrent("deny")); els.allowSessio
 els.accountButton.addEventListener("click", openAuth);
 els.settings.addEventListener("click", openAuth);
 els.home.addEventListener("click", showHome);
-els.closeAuth.addEventListener("click", () => { els.authOverlay.hidden = true; });
+els.closeAuth.addEventListener("click", () => hideDialog(els.authOverlay, els.settings));
 els.shortcutSelect.addEventListener("change", () => saveDesktopPreferences({ quickPromptShortcut: els.shortcutSelect.value || null }));
 els.trayEnabled.addEventListener("change", () => saveDesktopPreferences({ trayEnabled: els.trayEnabled.checked }));
 els.closeToTray.addEventListener("change", () => saveDesktopPreferences({ closeToTray: els.closeToTray.checked }));
 els.launchAtLogin.addEventListener("change", () => saveDesktopPreferences({ launchAtLogin: els.launchAtLogin.checked }));
+els.textScale.addEventListener("change", () => saveDesktopPreferences({ textScale: Number(els.textScale.value) }));
+els.reduceMotion.addEventListener("change", () => saveDesktopPreferences({ reduceMotion: els.reduceMotion.checked }));
+els.highContrast.addEventListener("change", () => saveDesktopPreferences({ highContrast: els.highContrast.checked }));
 els.notifyTurnComplete.addEventListener("change", () => saveDesktopPreferences({ notifyTurnComplete: els.notifyTurnComplete.checked }));
 els.notifyApproval.addEventListener("change", () => saveDesktopPreferences({ notifyApproval: els.notifyApproval.checked }));
 els.notifyTerminal.addEventListener("change", () => saveDesktopPreferences({ notifyTerminal: els.notifyTerminal.checked }));
@@ -1092,16 +1289,37 @@ els.retryConnection.addEventListener("click", async () => { try { applyBootstrap
 els.chooseCli.addEventListener("click", async () => { try { const result = await api.chooseCodexCli(); if (result) { applyBootstrap(result); toast("Codex CLI connected"); } } catch (error) { state.connectionError = error.message; showError(error); renderAuth(); } });
 els.signIn.addEventListener("click", async () => { try { state.loginPending = true; renderAuth(); await api.loginChatGPT(); } catch (error) { state.loginPending = false; showError(error); renderAuth(); } });
 els.logout.addEventListener("click", async () => { try { renderAccount(await api.logout()); toast("Signed out of Codex"); } catch (error) { showError(error); } });
-els.more.addEventListener("click", openDiagnostics); els.closeDiagnostics.addEventListener("click", () => { els.diagnosticsOverlay.hidden = true; });
+els.more.addEventListener("click", openDiagnostics); els.closeDiagnostics.addEventListener("click", () => hideDialog(els.diagnosticsOverlay, els.more));
 els.copyDiagnostics.addEventListener("click", async () => { try { await api.copyDiagnostics(); toast("Diagnostics copied"); } catch (error) { showError(error); } });
 els.exportDiagnostics.addEventListener("click", async () => { try { const filePath = await api.exportDiagnostics(); if (filePath) toast(`Diagnostics exported to ${filePath}`); } catch (error) { showError(error); } });
 els.showLog.addEventListener("click", () => api.showLogFile().catch(showError));
 document.addEventListener("keydown", (event) => {
+  const modal = activeModal();
+  if (modal) {
+    if (trapModalFocus(event, modal)) return;
+    if (event.key === "Escape") { event.preventDefault(); closeActiveModal(modal); }
+    return;
+  }
+  const editable = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || event.target?.isContentEditable;
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") { event.preventDefault(); chooseAndStartThread().catch(showError); }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "j") { event.preventDefault(); openTerminal(); }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); els.threadSearch.focus(); els.threadSearch.select(); }
+  if ((event.ctrlKey || event.metaKey) && event.key === ",") { event.preventDefault(); openAuth(); }
+  if (event.altKey && event.key === "ArrowLeft" && state.activeThread) { event.preventDefault(); showHome(); }
+  if (!editable && !event.ctrlKey && !event.metaKey && !event.altKey && event.key === "/") { event.preventDefault(); els.threadSearch.focus(); }
+  if (event.key === "F6") {
+    event.preventDefault();
+    const regions = [els.newThread, els.conversation, !els.prompt.disabled ? els.prompt : null].filter(isVisible);
+    const current = regions.findIndex((element) => element === document.activeElement || element.contains?.(document.activeElement));
+    regions[(current + 1) % regions.length]?.focus();
+  }
   if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === "`" && terminalPanelVisible()) { event.preventDefault(); startTerminal().catch(showError); }
-  if (event.key === "Escape") { els.diffPanel.classList.remove("open"); els.terminalPanel.classList.remove("open"); els.screenshotOverlay.hidden = true; closeCamera(); closeRegionCapture(); els.diagnosticsOverlay.hidden = true; els.authOverlay.hidden = true; }
+  if (event.key === "Escape") {
+    if (els.diffPanel.classList.contains("open")) closeDiffPanel();
+    else if (terminalPanelVisible()) closeTerminalPanel();
+  }
 });
-window.addEventListener("beforeunload", closeCamera);
+for (const query of [reduceMotionQuery, highContrastQuery]) query.addEventListener("change", () => renderDesktopPreferences());
+window.addEventListener("beforeunload", () => { cameraCapture.requestId += 1; stopCameraStream(); });
 for (const button of document.querySelectorAll("[data-prompt]")) button.addEventListener("click", () => chooseAndStartThread(button.dataset.prompt).catch(showError));
 bootstrap();

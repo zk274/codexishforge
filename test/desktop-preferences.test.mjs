@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   DEFAULT_DESKTOP_PREFERENCES,
   FALLBACK_SHORTCUT,
+  TEXT_SCALE_OPTIONS,
   mergeDesktopPreferences,
   normalizeDesktopPreferences,
   shouldHideOnClose,
@@ -24,8 +25,35 @@ test("disabling the tray also disables close-to-tray", () => {
     notifyTurnComplete: true,
     notifyApproval: true,
     notifyTerminal: true,
+    textScale: 1,
+    reduceMotion: false,
+    highContrast: false,
   });
   assert.equal(mergeDesktopPreferences({ trayEnabled: true, closeToTray: true }, { trayEnabled: false }).closeToTray, false);
+});
+
+test("accessibility preferences validate text scale and independent visual modes", () => {
+  assert.deepEqual(TEXT_SCALE_OPTIONS, [1, 1.1, 1.25, 1.5]);
+  assert.deepEqual(normalizeDesktopPreferences({
+    textScale: 1.25,
+    reduceMotion: true,
+    highContrast: true,
+  }), {
+    ...DEFAULT_DESKTOP_PREFERENCES,
+    textScale: 1.25,
+    reduceMotion: true,
+    highContrast: true,
+  });
+  assert.equal(normalizeDesktopPreferences({ textScale: 2 }).textScale, 1);
+  assert.deepEqual(mergeDesktopPreferences(DEFAULT_DESKTOP_PREFERENCES, {
+    textScale: 1.5,
+    reduceMotion: true,
+    unsupportedAccessibilityOption: true,
+  }), {
+    ...DEFAULT_DESKTOP_PREFERENCES,
+    textScale: 1.5,
+    reduceMotion: true,
+  });
 });
 
 test("notification preferences default on and can be configured independently", () => {

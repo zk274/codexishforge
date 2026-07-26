@@ -1,5 +1,6 @@
 export const DEFAULT_SHORTCUT = "CommandOrControl+Shift+Space";
 export const FALLBACK_SHORTCUT = "Alt+Shift+Space";
+export const TEXT_SCALE_OPTIONS = Object.freeze([1, 1.1, 1.25, 1.5]);
 export const SHORTCUT_OPTIONS = [
   DEFAULT_SHORTCUT,
   FALLBACK_SHORTCUT,
@@ -15,6 +16,9 @@ export const DEFAULT_DESKTOP_PREFERENCES = Object.freeze({
   notifyTurnComplete: true,
   notifyApproval: true,
   notifyTerminal: true,
+  textScale: 1,
+  reduceMotion: false,
+  highContrast: false,
 });
 
 export function normalizeDesktopPreferences(value = {}) {
@@ -23,6 +27,7 @@ export function normalizeDesktopPreferences(value = {}) {
     ? candidate.quickPromptShortcut
     : DEFAULT_DESKTOP_PREFERENCES.quickPromptShortcut;
   const trayEnabled = candidate.trayEnabled !== false;
+  const textScale = TEXT_SCALE_OPTIONS.includes(candidate.textScale) ? candidate.textScale : DEFAULT_DESKTOP_PREFERENCES.textScale;
   return {
     quickPromptShortcut,
     trayEnabled,
@@ -30,6 +35,9 @@ export function normalizeDesktopPreferences(value = {}) {
     notifyTurnComplete: candidate.notifyTurnComplete !== false,
     notifyApproval: candidate.notifyApproval !== false,
     notifyTerminal: candidate.notifyTerminal !== false,
+    textScale,
+    reduceMotion: candidate.reduceMotion === true,
+    highContrast: candidate.highContrast === true,
   };
 }
 

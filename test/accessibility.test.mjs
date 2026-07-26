@@ -1,0 +1,43 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import test from "node:test";
+
+const html = fs.readFileSync(new URL("../src/renderer/index.html", import.meta.url), "utf8");
+const css = fs.readFileSync(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
+const app = fs.readFileSync(new URL("../src/renderer/app.js", import.meta.url), "utf8");
+
+test("primary navigation and changing status have accessible semantics", () => {
+  assert.match(html, /class="skip-link" href="#conversation"/);
+  assert.match(html, /id="conversation"[^>]*tabindex="-1"[^>]*aria-label=/);
+  assert.match(html, /id="toast"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
+  assert.match(html, /id="regionStatus" aria-live="polite"/);
+});
+
+test("every modal dialog is named and modal focus is contained", () => {
+  const dialogs = [...html.matchAll(/<(?:section|div)[^>]*role="dialog"[^>]*>/g)].map(([tag]) => tag);
+  assert.equal(dialogs.length, 6);
+  for (const dialog of dialogs) {
+    assert.match(dialog, /aria-modal="true"/);
+    assert.match(dialog, /aria-labelledby="[^"]+"/);
+  }
+  assert.match(app, /function trapModalFocus/);
+  assert.match(app, /document\.querySelector\("\.app-shell"\)\.inert = modalOpen/);
+  assert.match(app, /if \(event\.key === "Escape"\).*closeActiveModal/);
+});
+
+test("keyboard paths cover threads, tabs, region capture, and global navigation", () => {
+  assert.match(app, /els\.threadList\.addEventListener\("keydown"/);
+  assert.match(app, /document\.querySelector\("\.diff-tabs"\)\.addEventListener\("keydown"/);
+  assert.match(app, /els\.terminalTabs\.addEventListener\("keydown"/);
+  assert.match(app, /els\.regionCanvas\.addEventListener\("keydown"/);
+  assert.match(app, /event\.key === "F6"/);
+  assert.match(app, /event\.altKey && event\.key === "ArrowLeft"/);
+});
+
+test("visual accessibility modes include visible focus, reduced motion, and forced colors", () => {
+  assert.match(css, /:focus-visible\s*\{\s*outline:2px solid var\(--focus-ring\)/);
+  assert.match(css, /html\.reduce-motion/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.match(css, /html\.high-contrast/);
+  assert.match(css, /@media \(forced-colors: active\)/);
+});

@@ -1,4 +1,6 @@
-const { contextBridge, ipcRenderer, webUtils } = require("electron");
+const { contextBridge, ipcRenderer, webFrame, webUtils } = require("electron");
+
+const textScales = new Set([1, 1.1, 1.25, 1.5]);
 
 contextBridge.exposeInMainWorld("codexDesktop", {
   bootstrap: () => ipcRenderer.invoke("codex:bootstrap"),
@@ -19,6 +21,12 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   desktopPreferences: () => ipcRenderer.invoke("desktop:getPreferences"),
   deepLinksReady: () => ipcRenderer.invoke("desktop:deepLinksReady"),
   updateDesktopPreferences: (updates) => ipcRenderer.invoke("desktop:updatePreferences", updates),
+  setTextScale: (value) => {
+    const factor = Number(value);
+    if (!textScales.has(factor)) throw new TypeError("Unsupported text scale");
+    webFrame.setZoomFactor(factor);
+    return factor;
+  },
   updateState: () => ipcRenderer.invoke("updates:getState"),
   setUpdatePreferences: (preferences) => ipcRenderer.invoke("updates:setPreferences", preferences),
   checkForUpdates: () => ipcRenderer.invoke("updates:check"),
