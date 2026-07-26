@@ -18,6 +18,7 @@ const regionCapture = { source: null, start: null, selection: null, dragging: fa
 const cameraCapture = { stream: null, requestId: 0, devices: [] };
 
 const els = {
+  home: $("#homeButton"), settings: $("#settingsButton"),
   threadList: $("#threadList"), threadSearch: $("#threadSearch"), refresh: $("#refreshButton"),
   newThread: $("#newThreadButton"), openProject: $("#openProjectButton"), folder: $("#folderButton"), folderName: $("#folderName"),
   threadTitle: $("#threadTitle"), projectPath: $("#projectPath"), welcome: $("#welcome"), messages: $("#messages"), conversation: $("#conversation"),
@@ -296,9 +297,22 @@ function renderThreads() {
 function setActiveThread(thread, turns = []) {
   state.activeThread = thread; state.turns = turns; state.activeTurnId = turns.findLast?.((turn) => turn.status === "inProgress")?.id || null; state.diff = ""; state.gitSelection = null; state.gitFileDiff = "";
   els.threadTitle.textContent = thread.name || thread.preview || "New thread"; els.projectPath.textContent = thread.cwd; els.folderName.textContent = basename(thread.cwd);
-  els.welcome.hidden = true; els.messages.hidden = false; els.terminalButton.disabled = !protocolFeatureAvailable("terminal"); renderThreads(); renderMessages(); renderDiff(); updateComposer(); refreshGit();
+  els.home.disabled = false; els.welcome.hidden = true; els.messages.hidden = false; els.terminalButton.disabled = !protocolFeatureAvailable("terminal"); renderThreads(); renderMessages(); renderDiff(); updateComposer(); refreshGit();
   if (terminalPanelVisible()) focusProjectTerminal({ create: true });
   else renderTerminal();
+}
+
+async function showHome() {
+  try { await api.showHome(); }
+  catch (error) { showError(error); return; }
+  state.activeThread = null; state.turns = []; state.activeTurnId = null; state.diff = ""; state.git = null; state.gitDiffs = { working: "", staged: "" }; state.gitSelection = null; state.gitFileDiff = ""; state.attachments = [];
+  els.threadTitle.textContent = "New thread"; els.projectPath.textContent = "Choose a project to begin"; els.folderName.textContent = "Project";
+  els.home.disabled = true; els.welcome.hidden = false; els.messages.hidden = true; els.messages.replaceChildren(); els.gitBranch.hidden = true; els.terminalButton.disabled = true;
+  els.diffPanel.classList.remove("open"); els.diffPanel.setAttribute("aria-hidden", "true");
+  els.terminalPanel.classList.remove("open"); els.terminalPanel.setAttribute("aria-hidden", "true");
+  renderAttachments(); renderThreads(); renderDiff(); renderTerminal(); updateComposer();
+  els.conversation.scrollTop = 0;
+  els.openProject.focus();
 }
 function createMessage(content, className) {
   const node = document.createElement("div"); node.className = `message ${className}`;
@@ -773,7 +787,7 @@ function openTerminal() {
   focusProjectTerminal({ create: true });
 }
 function handleNotification(method, params) {
-  if (params.threadId && state.activeThread && params.threadId !== state.activeThread.id) { if (["thread/name/updated", "thread/status/changed"].includes(method)) refreshThreads(); return; }
+  if (params.threadId && params.threadId !== state.activeThread?.id) { if (["thread/name/updated", "thread/status/changed", "turn/completed"].includes(method)) refreshThreads(); return; }
   if (method === "turn/started") { state.activeTurnId = params.turn.id; const index = state.turns.findIndex((turn) => turn.id === params.turn.id); if (index === -1) state.turns.push(params.turn); else state.turns[index] = params.turn; }
   else if (method === "item/started" || method === "item/completed") upsertItem(params.turnId, params.item);
   else if (method === "item/agentMessage/delta") appendItemDelta(params.turnId, params.itemId, "agentMessage", "text", params.delta);
@@ -1057,6 +1071,8 @@ new ResizeObserver(() => {
 }).observe(els.terminalOutput);
 els.deny.addEventListener("click", () => answerCurrent("deny")); els.allowSession.addEventListener("click", () => answerCurrent("session")); els.allow.addEventListener("click", () => answerCurrent("allow"));
 els.accountButton.addEventListener("click", openAuth);
+els.settings.addEventListener("click", openAuth);
+els.home.addEventListener("click", showHome);
 els.closeAuth.addEventListener("click", () => { els.authOverlay.hidden = true; });
 els.shortcutSelect.addEventListener("change", () => saveDesktopPreferences({ quickPromptShortcut: els.shortcutSelect.value || null }));
 els.trayEnabled.addEventListener("change", () => saveDesktopPreferences({ trayEnabled: els.trayEnabled.checked }));

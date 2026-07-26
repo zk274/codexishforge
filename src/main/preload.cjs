@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   listThreads: (params) => ipcRenderer.invoke("codex:listThreads", params),
   startThread: (params) => ipcRenderer.invoke("codex:startThread", params),
   resumeThread: (threadId) => ipcRenderer.invoke("codex:resumeThread", threadId),
+  showHome: () => ipcRenderer.invoke("codex:showHome"),
   sendTurn: (params) => ipcRenderer.invoke("codex:sendTurn", params),
   interruptTurn: (params) => ipcRenderer.invoke("codex:interruptTurn", params),
   answerRequest: (params) => ipcRenderer.invoke("codex:answerRequest", params),

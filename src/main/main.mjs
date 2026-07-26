@@ -448,6 +448,12 @@ function registerIpc() {
     return response;
   });
 
+  ipcMain.handle("codex:showHome", () => {
+    rememberThread(null);
+    log("info", "navigation.home");
+    return true;
+  });
+
   ipcMain.handle("codex:sendTurn", async (_event, params) => {
     const activeClient = await ensureConnected();
     return activeClient.request("turn/start", {
@@ -774,9 +780,55 @@ function createWindow({ show = true } = {}) {
     mainWindow = null;
     if (!isQuitting) app.quit();
   });
-  const captureArgument = process.argv.find((argument) => argument.startsWith("--capture-ui=") || argument.startsWith("--capture-diagnostics-ui=") || argument.startsWith("--capture-settings-ui=") || argument.startsWith("--capture-updates-ui=") || argument.startsWith("--capture-region-ui=") || argument.startsWith("--capture-camera-ui=") || argument.startsWith("--capture-live-camera-ui=") || argument.startsWith("--capture-camera-attachment-ui="));
+  const captureArgument = process.argv.find((argument) => argument.startsWith("--capture-ui=") || argument.startsWith("--capture-long-thread-ui=") || argument.startsWith("--capture-diagnostics-ui=") || argument.startsWith("--capture-settings-ui=") || argument.startsWith("--capture-updates-ui=") || argument.startsWith("--capture-region-ui=") || argument.startsWith("--capture-camera-ui=") || argument.startsWith("--capture-live-camera-ui=") || argument.startsWith("--capture-camera-attachment-ui="));
   if (captureArgument) mainWindow.webContents.once("did-finish-load", () => setTimeout(async () => {
-    if (captureArgument.startsWith("--capture-diagnostics-ui=")) {
+    if (captureArgument.startsWith("--capture-long-thread-ui=")) {
+      await mainWindow.webContents.executeJavaScript(`(() => {
+        document.querySelector("#threadTitle").textContent = "Oversized thread layout test";
+        document.querySelector("#projectPath").textContent = "/tmp/large-project";
+        document.querySelector("#homeButton").disabled = false;
+        document.querySelector("#welcome").hidden = true;
+        const messages = document.querySelector("#messages");
+        messages.hidden = false;
+        messages.style.display = "block";
+        messages.replaceChildren();
+        for (let index = 1; index <= 24; index += 1) {
+          const turn = document.createElement("section");
+          turn.className = "turn";
+          const user = document.createElement("div");
+          user.className = "message user";
+          user.textContent = "Test prompt " + index;
+          const agent = document.createElement("div");
+          agent.className = "message agent";
+          agent.textContent = "This synthetic response verifies that a long conversation scrolls inside its pane while the composer remains visible and usable.";
+          turn.append(user, agent);
+          messages.append(turn);
+        }
+        const prompt = document.querySelector("#promptInput");
+        prompt.disabled = false;
+        prompt.placeholder = "Continue this thread…";
+        const conversation = document.querySelector("#conversation");
+        conversation.scrollTop = Math.floor((conversation.scrollHeight - conversation.clientHeight) / 2);
+      })()`);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const layout = await mainWindow.webContents.executeJavaScript(`(() => {
+        const conversation = document.querySelector("#conversation");
+        const composer = document.querySelector("#composer").getBoundingClientRect();
+        const account = document.querySelector("#accountButton").getBoundingClientRect();
+        return {
+          turns: document.querySelector("#messages").children.length,
+          scrollHeight: conversation.scrollHeight,
+          clientHeight: conversation.clientHeight,
+          scrollTop: conversation.scrollTop,
+          composerBottom: composer.bottom,
+          accountBottom: account.bottom,
+          viewportHeight: window.innerHeight,
+        };
+      })()`);
+      if (layout.turns !== 24 || layout.scrollHeight <= layout.clientHeight || layout.scrollTop <= 0 || layout.composerBottom > layout.viewportHeight || layout.accountBottom > layout.viewportHeight) {
+        throw new Error(`Oversized thread layout validation failed: ${JSON.stringify(layout)}`);
+      }
+    } else if (captureArgument.startsWith("--capture-diagnostics-ui=")) {
       await mainWindow.webContents.executeJavaScript("document.querySelector('#moreButton').click()");
       await new Promise((resolve) => setTimeout(resolve, 500));
     } else if (captureArgument.startsWith("--capture-settings-ui=")) {
