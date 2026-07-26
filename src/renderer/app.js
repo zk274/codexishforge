@@ -9,6 +9,7 @@ import {
   terminalForHandle,
   unreadTerminalCount,
 } from "./terminal-state.mjs";
+import { mergeTurnSnapshot } from "./conversation-state.mjs";
 import { selectionFromPoints, selectionToImage } from "../shared/capture-region.mjs";
 
 const api = window.codexDesktop;
@@ -820,7 +821,7 @@ async function sendTurn() {
   try {
     const response = await api.sendTurn({ threadId: state.activeThread.id, text, attachments, model: els.model.value, effort: els.effort.value }); const turn = response.turn;
     if (!(turn.items || []).some((item) => item.type === "userMessage")) turn.items = [{ type: "userMessage", id: `local-${Date.now()}`, clientId: null, content: [...(text ? [{ type: "text", text, text_elements: [] }] : []), ...attachments.map((item) => item.kind === "image" ? { type: "localImage", path: item.path } : { type: "mention", name: item.name, path: item.path })] }, ...(turn.items || [])];
-    const index = state.turns.findIndex((entry) => entry.id === turn.id); if (index === -1) state.turns.push(turn); else state.turns[index] = turn;
+    const index = state.turns.findIndex((entry) => entry.id === turn.id); if (index === -1) state.turns.push(turn); else state.turns[index] = mergeTurnSnapshot(state.turns[index], turn);
     state.activeTurnId = turn.id; renderMessages(); updateComposer();
   } catch (error) { showError(error); state.activeTurnId = null; els.prompt.value = text; state.attachments = attachments; renderAttachments(); updateComposer(); }
 }
@@ -925,13 +926,13 @@ function openTerminal() {
 }
 function handleNotification(method, params) {
   if (params.threadId && params.threadId !== state.activeThread?.id) { if (["thread/name/updated", "thread/status/changed", "turn/completed"].includes(method)) refreshThreads(); return; }
-  if (method === "turn/started") { state.activeTurnId = params.turn.id; const index = state.turns.findIndex((turn) => turn.id === params.turn.id); if (index === -1) state.turns.push(params.turn); else state.turns[index] = params.turn; }
+  if (method === "turn/started") { state.activeTurnId = params.turn.id; const index = state.turns.findIndex((turn) => turn.id === params.turn.id); if (index === -1) state.turns.push(params.turn); else state.turns[index] = mergeTurnSnapshot(state.turns[index], params.turn); }
   else if (method === "item/started" || method === "item/completed") upsertItem(params.turnId, params.item);
   else if (method === "item/agentMessage/delta") appendItemDelta(params.turnId, params.itemId, "agentMessage", "text", params.delta);
   else if (method === "item/commandExecution/outputDelta" || method === "command/exec/outputDelta") appendItemDelta(params.turnId, params.itemId, "commandExecution", "aggregatedOutput", params.delta);
   else if (method === "item/fileChange/patchUpdated") { upsertItem(params.turnId, { type: "fileChange", id: params.itemId, changes: params.changes, status: "inProgress" }); refreshGit(); }
   else if (method === "turn/diff/updated") { state.diff = params.diff; renderDiff(); }
-  else if (method === "turn/completed") { const index = state.turns.findIndex((turn) => turn.id === params.turn.id); if (index === -1) state.turns.push(params.turn); else state.turns[index] = params.turn; state.activeTurnId = null; refreshThreads(); refreshGit(); }
+  else if (method === "turn/completed") { const index = state.turns.findIndex((turn) => turn.id === params.turn.id); if (index === -1) state.turns.push(params.turn); else state.turns[index] = mergeTurnSnapshot(state.turns[index], params.turn); state.activeTurnId = null; refreshThreads(); refreshGit(); }
   else if (method === "process/outputDelta") {
     const terminal = terminalForHandle(state.terminals, params.processHandle);
     if (!terminal) return;
