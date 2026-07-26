@@ -83,7 +83,7 @@ Packages are written to `dist/`. The build produces an AppImage, a `.deb` instal
 Classic confinement is intentional: Codex must open user-selected repositories and launch the host CLI. Install a local Snap build with:
 
 ```bash
-sudo snap install --classic --dangerous "dist/Codex Linux Community-0.3.0-amd64.snap"
+sudo snap install --classic --dangerous "dist/Codex Linux Community-0.4.0-amd64.snap"
 ```
 
 Publishing a classic snap in the Snap Store requires a confinement review.
