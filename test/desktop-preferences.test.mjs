@@ -21,8 +21,25 @@ test("disabling the tray also disables close-to-tray", () => {
     quickPromptShortcut: DEFAULT_DESKTOP_PREFERENCES.quickPromptShortcut,
     trayEnabled: false,
     closeToTray: false,
+    notifyTurnComplete: true,
+    notifyApproval: true,
+    notifyTerminal: true,
   });
   assert.equal(mergeDesktopPreferences({ trayEnabled: true, closeToTray: true }, { trayEnabled: false }).closeToTray, false);
+});
+
+test("notification preferences default on and can be configured independently", () => {
+  assert.deepEqual(normalizeDesktopPreferences({
+    notifyTurnComplete: false,
+    notifyApproval: true,
+    notifyTerminal: false,
+  }), {
+    ...DEFAULT_DESKTOP_PREFERENCES,
+    notifyTurnComplete: false,
+    notifyApproval: true,
+    notifyTerminal: false,
+  });
+  assert.equal(mergeDesktopPreferences(DEFAULT_DESKTOP_PREFERENCES, { notifyApproval: false }).notifyApproval, false);
 });
 
 test("default shortcut has an automatic fallback while custom choices do not", () => {

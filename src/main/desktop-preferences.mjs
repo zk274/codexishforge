@@ -12,6 +12,9 @@ export const DEFAULT_DESKTOP_PREFERENCES = Object.freeze({
   quickPromptShortcut: DEFAULT_SHORTCUT,
   trayEnabled: true,
   closeToTray: false,
+  notifyTurnComplete: true,
+  notifyApproval: true,
+  notifyTerminal: true,
 });
 
 export function normalizeDesktopPreferences(value = {}) {
@@ -24,6 +27,9 @@ export function normalizeDesktopPreferences(value = {}) {
     quickPromptShortcut,
     trayEnabled,
     closeToTray: trayEnabled && candidate.closeToTray === true,
+    notifyTurnComplete: candidate.notifyTurnComplete !== false,
+    notifyApproval: candidate.notifyApproval !== false,
+    notifyTerminal: candidate.notifyTerminal !== false,
   };
 }
 

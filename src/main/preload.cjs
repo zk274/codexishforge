@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   captureSources: () => ipcRenderer.invoke("desktop:captureSources"),
   captureSource: (sourceId) => ipcRenderer.invoke("desktop:captureSource", sourceId),
   captureSourceRegion: (params) => ipcRenderer.invoke("desktop:captureSourceRegion", params),
+  saveCameraFrame: (dataUrl) => ipcRenderer.invoke("desktop:saveCameraFrame", dataUrl),
+  notifyTerminal: (payload) => ipcRenderer.invoke("desktop:notifyTerminal", payload),
   desktopPreferences: () => ipcRenderer.invoke("desktop:getPreferences"),
   updateDesktopPreferences: (updates) => ipcRenderer.invoke("desktop:updatePreferences", updates),
   pathForFile: (file) => webUtils.getPathForFile(file),

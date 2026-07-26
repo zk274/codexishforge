@@ -17,6 +17,7 @@ test("terminal collection creates, activates, and removes tabs", () => {
   const collection = createTerminalCollection();
   const first = createTerminalTab(collection, { cwd: "/project/one" });
   const second = createTerminalTab(collection, { cwd: "/project/two" });
+  assert.equal(first.expectedExit, false);
   first.handle = "process-1";
   first.status = "running";
   second.status = "exited";

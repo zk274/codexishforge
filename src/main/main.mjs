@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, shell, Tray } from "electron";
+import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, Notification, shell, Tray } from "electron";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { XdgAutostart, resolveAutostartExecutable, resolveXdgConfigHome } from "./autostart.mjs";
 import { CodexClient } from "./codex-client.mjs";
 import { mergeDesktopPreferences, normalizeDesktopPreferences, shortcutCandidates, shouldHideOnClose } from "./desktop-preferences.mjs";
 import { resolveCodexCommand, validateCodexCommand } from "./codex-locator.mjs";
@@ -13,7 +14,19 @@ import { GitService } from "./git-service.mjs";
 import { inspectCodexProtocol, unknownProtocolCompatibility } from "./protocol-compatibility.mjs";
 import { StructuredLogger } from "./structured-logger.mjs";
 import { createTrayIconPng } from "./tray-icon.mjs";
+import {
+  NOTIFICATION_DEDUPE_WINDOW_MS,
+  notificationContent,
+  notificationDedupeKey,
+  shouldShowNotification,
+} from "./notification-policy.mjs";
 import { validateCropRectangle } from "../shared/capture-region.mjs";
+import {
+  cameraPermissionCheckAllowed,
+  cameraPermissionRequestAllowed,
+  validateCameraFrameDataUrl,
+  validateCameraFrameSize,
+} from "../shared/camera-capture.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let client = null;
@@ -29,6 +42,10 @@ let shortcutRequested = null;
 let shortcutError = null;
 let tray = null;
 let trayError = null;
+let autostart = null;
+let notificationIcon = null;
+const notificationDedupe = new Map();
+const liveNotifications = new Set();
 let isQuitting = false;
 let compatibility = unknownProtocolCompatibility();
 let cachedCliVersion = null;
@@ -110,16 +127,100 @@ function traySnapshot() {
   return { enabled: desktopPreferences().trayEnabled, available: Boolean(tray), error: trayError };
 }
 
+function notificationSnapshot() {
+  try { return { supported: Notification.isSupported(), active: liveNotifications.size }; }
+  catch (error) { return { supported: false, active: liveNotifications.size, error: error.message }; }
+}
+
+function autostartSnapshot() {
+  if (autostart) return autostart.status();
+  return {
+    available: false,
+    enabled: false,
+    managed: false,
+    conflict: false,
+    stale: false,
+    testMode: false,
+    filePath: null,
+    executable: null,
+    reason: "Launch at login has not been initialized.",
+  };
+}
+
 function desktopState() {
   return {
     preferences: desktopPreferences(),
     shortcut: shortcutSnapshot(),
     tray: traySnapshot(),
+    autostart: autostartSnapshot(),
+    notifications: notificationSnapshot(),
     environment: {
       desktop: process.env.XDG_CURRENT_DESKTOP || null,
       sessionType: process.env.XDG_SESSION_TYPE || null,
     },
   };
+}
+
+function appWindowFocused() {
+  return Boolean(mainWindow?.isFocused() || companionWindow?.isFocused());
+}
+
+function activateDesktopNotification(target) {
+  showMainWindow();
+  setTimeout(() => sendEvent({ kind: "notificationActivated", target }), 75);
+}
+
+function showDesktopNotification(kind, { id, requestType = null, exitCode = null, failedToStart = false, target = null, ignoreFocus = false } = {}) {
+  const supported = notificationSnapshot().supported;
+  const key = notificationDedupeKey(kind, id);
+  const now = Date.now();
+  const duplicate = now - (notificationDedupe.get(key) || 0) < NOTIFICATION_DEDUPE_WINDOW_MS;
+  const decision = shouldShowNotification({
+    kind,
+    preferences: desktopPreferences(),
+    supported,
+    focused: !ignoreFocus && appWindowFocused(),
+    duplicate,
+  });
+  if (!decision.show) return { shown: false, reason: decision.reason };
+
+  for (const [candidate, shownAt] of notificationDedupe) {
+    if (now - shownAt > NOTIFICATION_DEDUPE_WINDOW_MS) notificationDedupe.delete(candidate);
+  }
+  const content = notificationContent(kind, { requestType, exitCode, failedToStart });
+  notificationIcon ||= nativeImage.createFromBuffer(createTrayIconPng(64));
+  const notification = new Notification({
+    ...content,
+    icon: notificationIcon,
+    timeoutType: "default",
+  });
+  let cleanupTimer = null;
+  const cleanup = () => {
+    liveNotifications.delete(notification);
+    if (cleanupTimer) clearTimeout(cleanupTimer);
+    cleanupTimer = null;
+  };
+  notification.on("click", () => {
+    cleanup();
+    activateDesktopNotification(target || { kind });
+  });
+  notification.on("close", cleanup);
+  notification.on("failed", (_event, error) => {
+    cleanup();
+    log("warn", "desktop.notification_failed", { kind, message: error?.message || String(error || "Unknown notification error") });
+  });
+  liveNotifications.add(notification);
+  notificationDedupe.set(key, now);
+  cleanupTimer = setTimeout(cleanup, 5 * 60_000);
+  cleanupTimer.unref();
+  try { notification.show(); }
+  catch (error) {
+    cleanup();
+    log("warn", "desktop.notification_failed", { kind, message: error.message });
+    return { shown: false, reason: "failed" };
+  }
+  log("info", "desktop.notification_shown", { kind });
+  return { shown: true, reason: null };
 }
 
 function rememberThread(context) {
@@ -137,10 +238,23 @@ function bindClientEvents(activeClient) {
   activeClient.on("notification", (message) => {
     if (message.method === "thread/name/updated" && activeThreadContext?.id === message.params.threadId) activeThreadContext.title = message.params.name || activeThreadContext.title;
     sendEvent({ kind: "notification", ...message });
+    if (message.method === "turn/completed") {
+      const turnId = message.params.turn?.id;
+      const threadId = message.params.threadId || activeThreadContext?.id || null;
+      if (turnId) showDesktopNotification("turn", { id: turnId, target: { kind: "thread", threadId } });
+    }
   });
   activeClient.on("serverRequest", (message) => {
     if (message.method === "currentTime/read") activeClient.respond(message.id, { currentTimeAt: Math.floor(Date.now() / 1000) });
-    else sendEvent({ kind: "request", ...message });
+    else {
+      sendEvent({ kind: "request", ...message });
+      const requestType = ["item/tool/requestUserInput", "mcpServer/elicitation/request"].includes(message.method) ? "input" : "approval";
+      showDesktopNotification("request", {
+        id: message.id,
+        requestType,
+        target: { kind: "request", requestId: message.id, threadId: message.params?.threadId || activeThreadContext?.id || null },
+      });
+    }
   });
   activeClient.on("status", (status) => { log(status.connected ? "info" : "error", "codex.status", status); sendEvent({ kind: "status", ...status }); });
   activeClient.on("log", (message) => { log("warn", "codex.stderr", { message }); sendEvent({ kind: "log", message }); });
@@ -235,6 +349,8 @@ async function diagnosticsSnapshot() {
     codex: { found: status.found, path: status.path, version: await cliVersion(), connected: Boolean(client?.ready), server: client?.serverInfo || null, compatibility },
     quickPrompt: { ...shortcutSnapshot(), environment: desktopState().environment },
     tray: traySnapshot(),
+    autostart: autostartSnapshot(),
+    notifications: notificationSnapshot(),
     activeThread: activeThreadContext ? { id: activeThreadContext.id, project: path.basename(activeThreadContext.cwd), title: activeThreadContext.title } : null,
     logFile: logger?.filePath || null,
   };
@@ -397,8 +513,35 @@ function registerIpc() {
     return saveImage(image, "region");
   });
 
+  ipcMain.handle("desktop:saveCameraFrame", (_event, dataUrl) => {
+    const image = nativeImage.createFromDataURL(validateCameraFrameDataUrl(dataUrl));
+    if (image.isEmpty()) throw new Error("The camera did not provide a usable image");
+    validateCameraFrameSize(image.getSize());
+    return saveImage(image, "camera");
+  });
+
+  ipcMain.handle("desktop:notifyTerminal", (event, payload = {}) => {
+    if (event.sender !== mainWindow?.webContents) throw new Error("Terminal notifications are limited to the main window");
+    const processHandle = payload.processHandle;
+    const terminalId = payload.terminalId;
+    if (typeof processHandle !== "string" || processHandle.length < 1 || processHandle.length > 200) throw new TypeError("Terminal process handle is invalid");
+    if (typeof terminalId !== "string" || terminalId.length < 1 || terminalId.length > 200) throw new TypeError("Terminal tab id is invalid");
+    if (payload.exitCode != null && !Number.isInteger(payload.exitCode)) throw new TypeError("Terminal exit code is invalid");
+    return showDesktopNotification("terminal", {
+      id: processHandle,
+      exitCode: payload.exitCode ?? null,
+      failedToStart: payload.failedToStart === true,
+      target: { kind: "terminal", processHandle, terminalId },
+    });
+  });
+
   ipcMain.handle("desktop:getPreferences", () => desktopState());
   ipcMain.handle("desktop:updatePreferences", (_event, updates = {}) => {
+    if (!updates || typeof updates !== "object" || Array.isArray(updates)) throw new TypeError("Desktop preference updates must be an object");
+    if (Object.hasOwn(updates, "launchAtLogin")) {
+      if (typeof updates.launchAtLogin !== "boolean") throw new TypeError("Launch at login must be enabled or disabled");
+      autostart.setEnabled(updates.launchAtLogin);
+    }
     const settings = readSettings();
     const preferences = mergeDesktopPreferences(settings.desktop, updates);
     writeSettings({ ...settings, desktop: preferences });
@@ -504,13 +647,14 @@ function registerIpc() {
   ipcMain.handle("diagnostics:showLog", () => { if (logger?.filePath) shell.showItemInFolder(logger.filePath); });
 }
 
-function createWindow() {
+function createWindow({ show = true } = {}) {
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 920,
     minWidth: 980,
     minHeight: 650,
     backgroundColor: "#171816",
+    show,
     titleBarStyle: "hidden",
     titleBarOverlay: { color: "#171816", symbolColor: "#e7e9df", height: 44 },
     webPreferences: {
@@ -520,6 +664,17 @@ function createWindow() {
       sandbox: true,
     },
   });
+  const windowSession = mainWindow.webContents.session;
+  windowSession.setPermissionCheckHandler((webContents, permission, _requestingOrigin, details = {}) => cameraPermissionCheckAllowed({
+    trustedWindow: webContents === mainWindow?.webContents,
+    permission,
+    mediaType: details.mediaType,
+  }));
+  windowSession.setPermissionRequestHandler((webContents, permission, callback, details = {}) => callback(cameraPermissionRequestAllowed({
+    trustedWindow: webContents === mainWindow?.webContents,
+    permission,
+    mediaTypes: details.mediaTypes,
+  })));
   mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
   mainWindow.on("close", (event) => {
     const preferences = desktopPreferences();
@@ -534,13 +689,41 @@ function createWindow() {
     mainWindow = null;
     if (!isQuitting) app.quit();
   });
-  const captureArgument = process.argv.find((argument) => argument.startsWith("--capture-ui=") || argument.startsWith("--capture-diagnostics-ui=") || argument.startsWith("--capture-settings-ui=") || argument.startsWith("--capture-region-ui="));
+  const captureArgument = process.argv.find((argument) => argument.startsWith("--capture-ui=") || argument.startsWith("--capture-diagnostics-ui=") || argument.startsWith("--capture-settings-ui=") || argument.startsWith("--capture-region-ui=") || argument.startsWith("--capture-camera-ui=") || argument.startsWith("--capture-live-camera-ui=") || argument.startsWith("--capture-camera-attachment-ui="));
   if (captureArgument) mainWindow.webContents.once("did-finish-load", () => setTimeout(async () => {
     if (captureArgument.startsWith("--capture-diagnostics-ui=")) {
       await mainWindow.webContents.executeJavaScript("document.querySelector('#moreButton').click()");
       await new Promise((resolve) => setTimeout(resolve, 500));
     } else if (captureArgument.startsWith("--capture-settings-ui=")) {
       await mainWindow.webContents.executeJavaScript("document.querySelector('#accountButton').click()");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    } else if (captureArgument.startsWith("--capture-camera-attachment-ui=")) {
+      await mainWindow.webContents.executeJavaScript("document.querySelector('#cameraButton').click()");
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+      const ready = await mainWindow.webContents.executeJavaScript("!document.querySelector('#captureCameraButton').disabled");
+      if (!ready) throw new Error("Synthetic camera did not become ready");
+      await mainWindow.webContents.executeJavaScript("document.querySelector('#captureCameraButton').click()");
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+    } else if (captureArgument.startsWith("--capture-live-camera-ui=")) {
+      await mainWindow.webContents.executeJavaScript("document.querySelector('#cameraButton').click()");
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+    } else if (captureArgument.startsWith("--capture-camera-ui=")) {
+      const preview = `data:image/svg+xml,${encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='1280' height='720'><defs><radialGradient id='g'><stop stop-color='#34473f'/><stop offset='1' stop-color='#11130f'/></radialGradient></defs><rect width='1280' height='720' fill='url(#g)'/><circle cx='640' cy='288' r='112' fill='#9cf0c4' opacity='.2'/><circle cx='640' cy='288' r='74' fill='#9cf0c4' opacity='.24'/><path d='M380 620c34-150 143-225 260-225s226 75 260 225' fill='#9cf0c4' opacity='.17'/><text x='640' y='675' fill='#92968a' text-anchor='middle' font-family='sans-serif' font-size='27'>Live camera preview</text></svg>")}`;
+      await mainWindow.webContents.executeJavaScript(`(() => {
+        const overlay = document.querySelector("#cameraOverlay");
+        overlay.hidden = false;
+        const video = document.querySelector("#cameraVideo");
+        video.hidden = true;
+        const previewSurface = document.querySelector(".camera-preview");
+        previewSurface.style.background = "center / contain no-repeat url(" + ${JSON.stringify(JSON.stringify(preview))} + "), #0d0e0c";
+        document.querySelector("#cameraPreviewState").hidden = true;
+        const field = document.querySelector("#cameraDeviceField");
+        const select = document.querySelector("#cameraDeviceSelect");
+        field.hidden = false;
+        select.replaceChildren(new Option("Integrated Camera", "integrated"), new Option("USB Camera", "usb"));
+        document.querySelector("#cameraResolution").textContent = "1280 × 720";
+        document.querySelector("#captureCameraButton").disabled = false;
+      })()`);
       await new Promise((resolve) => setTimeout(resolve, 500));
     } else if (captureArgument.startsWith("--capture-region-ui=")) {
       const preview = `data:image/svg+xml,${encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='1440' height='900'><defs><linearGradient id='g' x2='1' y2='1'><stop stop-color='#20342f'/><stop offset='1' stop-color='#20211d'/></linearGradient></defs><rect width='1440' height='900' fill='url(#g)'/><rect x='90' y='90' width='1260' height='720' rx='24' fill='#171816' stroke='#4b4d43' stroke-width='3'/><text x='150' y='190' fill='#ecede5' font-family='sans-serif' font-size='54'>Captured workspace preview</text><text x='150' y='250' fill='#92968a' font-family='sans-serif' font-size='28'>Drag to select only the pixels you want to attach.</text><rect x='150' y='330' width='500' height='330' rx='18' fill='#242520'/><rect x='700' y='330' width='590' height='90' rx='18' fill='#2a2c25'/><rect x='700' y='450' width='590' height='210' rx='18' fill='#1d1e1a'/></svg>")}`;
@@ -563,6 +746,16 @@ function createWindow() {
     const image = await mainWindow.webContents.capturePage();
     fs.writeFileSync(captureArgument.slice(captureArgument.indexOf("=") + 1), image.toPNG());
     app.quit();
+  }, 2500));
+  const notificationTestArgument = process.argv.find((argument) => argument.startsWith("--test-notification="));
+  if (notificationTestArgument) mainWindow.webContents.once("did-finish-load", () => setTimeout(() => {
+    const result = showDesktopNotification("turn", {
+      id: `test-${Date.now()}`,
+      target: { kind: "thread", threadId: null },
+      ignoreFocus: true,
+    });
+    fs.writeFileSync(notificationTestArgument.slice(notificationTestArgument.indexOf("=") + 1), `${JSON.stringify({ ...result, supported: notificationSnapshot().supported })}\n`);
+    setTimeout(() => app.quit(), 1500);
   }, 2500));
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith("https://")) shell.openExternal(url);
@@ -646,6 +839,36 @@ function updateTray(preferences = desktopPreferences()) {
   }
 }
 
+function initializeAutostart() {
+  const testArgument = !app.isPackaged
+    ? process.argv.find((argument) => argument.startsWith("--autostart-test-dir="))
+    : null;
+  let testDirectory = null;
+  if (testArgument) {
+    const candidate = path.resolve(testArgument.slice(testArgument.indexOf("=") + 1));
+    const temporaryRoot = path.resolve(os.tmpdir());
+    if (candidate !== temporaryRoot && candidate.startsWith(`${temporaryRoot}${path.sep}`)) testDirectory = candidate;
+    else log("warn", "desktop.autostart_test_directory_rejected", { path: candidate });
+  }
+  const testMode = Boolean(testDirectory);
+  const directory = testDirectory || path.join(resolveXdgConfigHome({
+    xdgConfigHome: process.env.XDG_CONFIG_HOME,
+    home: os.homedir(),
+  }), "autostart");
+  autostart = new XdgAutostart({
+    directory,
+    executable: resolveAutostartExecutable({ execPath: app.getPath("exe"), env: process.env }),
+    available: process.platform === "linux" && (app.isPackaged || testMode),
+    testMode,
+  });
+  try {
+    const status = autostart.refresh();
+    log(status.reason ? "warn" : "info", "desktop.autostart_initialized", status);
+  } catch (error) {
+    log("warn", "desktop.autostart_refresh_failed", { message: error.message, filePath: autostart.filePath });
+  }
+}
+
 app.whenReady().then(() => {
   sessionMarkerPath = path.join(app.getPath("userData"), "running.lock");
   previousUncleanShutdown = fs.existsSync(sessionMarkerPath);
@@ -653,11 +876,15 @@ app.whenReady().then(() => {
   fs.writeFileSync(sessionMarkerPath, String(process.pid), { mode: 0o600 });
   logger = new StructuredLogger(path.join(app.getPath("userData"), "logs", "app.jsonl"));
   log("info", "app.started", { version: app.getVersion(), packaged: app.isPackaged, platform: process.platform, arch: process.arch, previousUncleanShutdown });
+  initializeAutostart();
   registerIpc();
-  createWindow();
+  const startedByAutostart = process.argv.includes("--autostart");
+  createWindow({ show: !startedByAutostart });
   createCompanionWindow();
   registerQuickPromptShortcut();
   updateTray();
+  if (startedByAutostart && !tray) showMainWindow();
+  log("info", "desktop.startup_mode", { autostart: startedByAutostart, background: startedByAutostart && Boolean(tray) });
   log(shortcutRegistered || !shortcutRequested ? "info" : "warn", "quick_prompt.shortcut", shortcutSnapshot());
   if (!shortcutRegistered && shortcutRequested) sendEvent({ kind: "log", message: shortcutError });
   app.on("activate", () => {

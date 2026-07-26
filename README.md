@@ -12,6 +12,7 @@ An unofficial Linux desktop client powered by the installed OpenAI Codex CLI. It
 - Render Markdown, highlighted code, tables, links, and copyable code blocks
 - Attach files and images using the file picker, clipboard, or drag and drop
 - Capture full screens and application windows, or drag-select a precise region, as image attachments
+- Preview an available webcam, switch cameras, and capture a still image attachment without requesting microphone access
 - Review Git branches plus working, staged, and current-turn diffs per file
 - Stage, unstage, safely discard working changes, and commit staged changes
 - Run multiple persistent interactive project terminals with tabs, lifecycle state, and background-output indicators
@@ -19,6 +20,8 @@ An unofficial Linux desktop client powered by the installed OpenAI Codex CLI. It
 - Answer questions Codex asks during a turn
 - Configure or disable the global quick-prompt shortcut, with conflict and Wayland compositor guidance
 - Show, quick-prompt, or quit from the Linux system tray, with optional close-to-tray behavior
+- Launch at login through a managed XDG autostart entry, starting quietly in the tray when available
+- Receive configurable, privacy-safe notifications for completed turns, approval requests, questions, and background terminal exits
 - Restore the last active thread after restarting
 - Preflight the installed CLI's version-specific app-server schema, blocking incompatible builds and gating unavailable optional features
 - Collect rotating, credential-redacted diagnostics with copy/export controls
@@ -74,7 +77,7 @@ Open the **•••** menu for diagnostics. Reports include runtime and compati
 
 ## Current scope
 
-This is an early desktop client built on the CLI's experimental app-server protocol. Core local coding and Git workflows are present, but cloud task management, voice/realtime mode, plugin management screens, camera capture, and Canvas-style editing are not yet exposed. Unknown server requests are rejected safely instead of being guessed. See [ROADMAP.md](ROADMAP.md) for the next desktop-focused milestones.
+This is an early desktop client built on the CLI's experimental app-server protocol. Core local coding and Git workflows are present, but cloud task management, voice/realtime mode, plugin management screens, and Canvas-style editing are not yet exposed. Unknown server requests are rejected safely instead of being guessed. See [ROADMAP.md](ROADMAP.md) for the next desktop-focused milestones.
 
 ## Safety and privacy
 

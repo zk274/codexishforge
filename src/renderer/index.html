@@ -73,6 +73,7 @@
               <div class="composer-options">
                 <button id="attachButton" class="option-button" title="Attach files">＋</button>
                 <button id="screenshotButton" class="option-button" title="Take screenshot">▣</button>
+                <button id="cameraButton" class="option-button" title="Take camera photo">◉</button>
                 <button id="folderButton" class="option-button" title="Choose project">⌂ <span id="folderName">Project</span></button>
                 <select id="modelSelect" aria-label="Model"><option value="">Default model</option></select>
                 <select id="effortSelect" aria-label="Reasoning effort">
@@ -151,6 +152,13 @@
           <label class="toggle-setting"><input id="trayEnabledInput" type="checkbox" /><span><strong>System tray</strong><small>Show Codex and open Quick Prompt from the tray.</small></span></label>
           <label class="toggle-setting"><input id="closeToTrayInput" type="checkbox" /><span><strong>Close to tray</strong><small>Keep terminals and Codex running when the main window closes.</small></span></label>
           <p id="trayPreferenceStatus" class="setting-status">Checking tray support…</p>
+          <label class="toggle-setting"><input id="launchAtLoginInput" type="checkbox" /><span><strong>Launch at login</strong><small>Start Codex in the background and keep it available from the tray.</small></span></label>
+          <p id="autostartPreferenceStatus" class="setting-status">Checking login startup…</p>
+          <p class="settings-subheading">NOTIFICATIONS</p>
+          <label class="toggle-setting"><input id="notifyTurnCompleteInput" type="checkbox" /><span><strong>Completed turns</strong><small>Notify when Codex finishes while the app is unfocused.</small></span></label>
+          <label class="toggle-setting"><input id="notifyApprovalInput" type="checkbox" /><span><strong>Approvals and questions</strong><small>Notify when Codex is waiting for your decision or answer.</small></span></label>
+          <label class="toggle-setting"><input id="notifyTerminalInput" type="checkbox" /><span><strong>Background terminals</strong><small>Notify when an unseen terminal finishes or fails.</small></span></label>
+          <p id="notificationPreferenceStatus" class="setting-status">Checking desktop notification support…</p>
         </section>
         <div class="auth-actions">
           <button id="retryConnectionButton" class="secondary-button" hidden>Retry connection</button>
@@ -169,6 +177,30 @@
         <h2 id="captureTitle">Choose a screen or window</h2>
         <p id="captureHint" class="capture-hint">Capture the full source, or select just the part you need.</p>
         <div id="captureSources" class="capture-sources"></div>
+      </section>
+    </div>
+
+    <div id="cameraOverlay" class="overlay" hidden>
+      <section class="camera-dialog" role="dialog" aria-modal="true" aria-labelledby="cameraTitle">
+        <button id="closeCameraButton" class="dialog-close" title="Close camera">×</button>
+        <p class="eyebrow">ATTACH CAMERA PHOTO</p>
+        <h2 id="cameraTitle">Take a photo</h2>
+        <p id="cameraDescription" class="camera-description">Camera video stays on this device. Only the still image you capture is attached.</p>
+        <label id="cameraDeviceField" class="camera-device-field" for="cameraDeviceSelect" hidden>
+          <span>Camera</span>
+          <select id="cameraDeviceSelect"></select>
+        </label>
+        <div class="camera-preview">
+          <video id="cameraVideo" autoplay muted playsinline aria-label="Live camera preview"></video>
+          <div id="cameraPreviewState" class="camera-preview-state">Requesting camera access…</div>
+        </div>
+        <div class="camera-actions">
+          <span id="cameraResolution">Waiting for video…</span>
+          <div>
+            <button id="cancelCameraButton" class="secondary-button">Cancel</button>
+            <button id="captureCameraButton" class="primary-action" disabled>Take photo</button>
+          </div>
+        </div>
       </section>
     </div>
 

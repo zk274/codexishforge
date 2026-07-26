@@ -15,6 +15,7 @@ const api = window.codexDesktop;
 const $ = (selector) => document.querySelector(selector);
 const state = { connected: false, connectionError: null, account: null, cli: null, compatibility: null, desktop: null, loginPending: false, restorationAttempted: false, threads: [], models: [], activeThread: null, turns: [], activeTurnId: null, diff: "", diffView: "working", git: null, gitDiffs: { working: "", staged: "" }, gitSelection: null, gitFileDiff: "", attachments: [], terminals: createTerminalCollection(), requestQueue: [], currentRequest: null };
 const regionCapture = { source: null, start: null, selection: null, dragging: false };
+const cameraCapture = { stream: null, requestId: 0, devices: [] };
 
 const els = {
   threadList: $("#threadList"), threadSearch: $("#threadSearch"), refresh: $("#refreshButton"),
@@ -32,10 +33,15 @@ const els = {
   authTitle: $("#authTitle"), authDescription: $("#authDescription"), cliLocation: $("#cliLocation"), cliPath: $("#cliPath"),
   retryConnection: $("#retryConnectionButton"), chooseCli: $("#chooseCliButton"), signIn: $("#signInButton"), logout: $("#logoutButton"), authDocs: $("#authDocsButton"),
   shortcutSelect: $("#shortcutSelect"), shortcutPreferenceStatus: $("#shortcutPreferenceStatus"), trayEnabled: $("#trayEnabledInput"), closeToTray: $("#closeToTrayInput"), trayPreferenceStatus: $("#trayPreferenceStatus"),
+  launchAtLogin: $("#launchAtLoginInput"), autostartPreferenceStatus: $("#autostartPreferenceStatus"),
+  notifyTurnComplete: $("#notifyTurnCompleteInput"), notifyApproval: $("#notifyApprovalInput"), notifyTerminal: $("#notifyTerminalInput"), notificationPreferenceStatus: $("#notificationPreferenceStatus"),
   gitBranch: $("#gitBranch"), refreshGit: $("#refreshGitButton"), terminalButton: $("#terminalButton"), terminalBadge: $("#terminalBadge"), terminalPanel: $("#terminalPanel"),
   terminalTabs: $("#terminalTabs"), terminalTitle: $("#terminalTitle"), terminalStatus: $("#terminalStatus"), terminalOutput: $("#terminalOutput"), terminalForm: $("#terminalForm"), terminalInput: $("#terminalInput"),
-  newTerminal: $("#newTerminalButton"), closeTerminal: $("#closeTerminalButton"), restartTerminal: $("#restartTerminalButton"), attachmentTray: $("#attachmentTray"), attach: $("#attachButton"), screenshot: $("#screenshotButton"), composer: $("#composer"),
+  newTerminal: $("#newTerminalButton"), closeTerminal: $("#closeTerminalButton"), restartTerminal: $("#restartTerminalButton"), attachmentTray: $("#attachmentTray"), attach: $("#attachButton"), screenshot: $("#screenshotButton"), camera: $("#cameraButton"), composer: $("#composer"),
   screenshotOverlay: $("#screenshotOverlay"), closeCapture: $("#closeCaptureButton"), captureHint: $("#captureHint"), captureSources: $("#captureSources"),
+  cameraOverlay: $("#cameraOverlay"), closeCamera: $("#closeCameraButton"), cancelCamera: $("#cancelCameraButton"), cameraDescription: $("#cameraDescription"),
+  cameraDeviceField: $("#cameraDeviceField"), cameraDevice: $("#cameraDeviceSelect"), cameraVideo: $("#cameraVideo"), cameraPreviewState: $("#cameraPreviewState"),
+  cameraResolution: $("#cameraResolution"), captureCamera: $("#captureCameraButton"),
   regionOverlay: $("#regionOverlay"), regionCanvas: $("#regionCanvas"), regionImage: $("#regionImage"), regionSelection: $("#regionSelection"),
   regionStatus: $("#regionStatus"), closeRegion: $("#closeRegionButton"), cancelRegion: $("#cancelRegionButton"), captureRegion: $("#captureRegionButton"),
   more: $("#moreButton"), diagnosticsOverlay: $("#diagnosticsOverlay"), closeDiagnostics: $("#closeDiagnosticsButton"), diagnosticsStatus: $("#diagnosticsStatus"), diagnosticsContent: $("#diagnosticsContent"),
@@ -124,6 +130,12 @@ function renderDesktopPreferences() {
   els.trayEnabled.checked = preferences.trayEnabled;
   els.closeToTray.checked = preferences.closeToTray;
   els.closeToTray.disabled = !preferences.trayEnabled;
+  els.launchAtLogin.checked = Boolean(desktop.autostart?.enabled);
+  els.launchAtLogin.disabled = !desktop.autostart?.available || desktop.autostart?.conflict;
+  els.notifyTurnComplete.checked = preferences.notifyTurnComplete;
+  els.notifyApproval.checked = preferences.notifyApproval;
+  els.notifyTerminal.checked = preferences.notifyTerminal;
+  for (const input of [els.notifyTurnComplete, els.notifyApproval, els.notifyTerminal]) input.disabled = !desktop.notifications?.supported;
   els.shortcutPreferenceStatus.className = "setting-status";
   if (!preferences.quickPromptShortcut) els.shortcutPreferenceStatus.textContent = "Global quick prompt is disabled.";
   else if (desktop.shortcut.registered) {
@@ -146,13 +158,37 @@ function renderDesktopPreferences() {
     els.trayPreferenceStatus.classList.add("warn");
     els.trayPreferenceStatus.textContent = desktop.tray.error || "The desktop shell did not provide a system tray.";
   }
+  els.autostartPreferenceStatus.className = "setting-status";
+  if (!desktop.autostart?.available) {
+    els.autostartPreferenceStatus.textContent = desktop.autostart?.reason || "Launch at login is unavailable in this build.";
+  } else if (desktop.autostart.conflict || desktop.autostart.reason) {
+    els.autostartPreferenceStatus.classList.add("warn");
+    els.autostartPreferenceStatus.textContent = desktop.autostart.reason;
+  } else if (desktop.autostart.enabled) {
+    els.autostartPreferenceStatus.classList.add("good");
+    els.autostartPreferenceStatus.textContent = desktop.autostart.testMode
+      ? "Isolated test autostart is enabled."
+      : "Codex will start in the background after you log in.";
+  } else {
+    els.autostartPreferenceStatus.textContent = desktop.autostart.testMode
+      ? "Isolated test autostart is disabled."
+      : "Codex will not start automatically.";
+  }
+  els.notificationPreferenceStatus.className = "setting-status";
+  if (desktop.notifications?.supported) {
+    els.notificationPreferenceStatus.classList.add("good");
+    els.notificationPreferenceStatus.textContent = "Desktop notifications are available and appear only while Codex is unfocused.";
+  } else {
+    els.notificationPreferenceStatus.classList.add("warn");
+    els.notificationPreferenceStatus.textContent = desktop.notifications?.error || "This desktop session does not provide system notifications.";
+  }
 }
 
 async function saveDesktopPreferences(updates) {
   try {
     state.desktop = await api.updateDesktopPreferences(updates);
     renderDesktopPreferences();
-  } catch (error) { showError(error); }
+  } catch (error) { renderDesktopPreferences(); showError(error); }
 }
 
 async function openAuth() {
@@ -172,6 +208,8 @@ async function openDiagnostics() {
       diagnosticPill(`Protocol ${report.codex.compatibility.status}`, report.codex.compatibility.status === "compatible" ? true : report.codex.compatibility.status === "partial" || report.codex.compatibility.status === "unknown" ? "warn" : false),
       diagnosticPill(report.quickPrompt.registered ? "Shortcut ready" : report.quickPrompt.requested ? "Shortcut unavailable" : "Shortcut disabled", report.quickPrompt.registered ? true : report.quickPrompt.requested ? false : "warn"),
       diagnosticPill(report.tray.available ? "Tray ready" : report.tray.enabled ? "Tray unavailable" : "Tray disabled", report.tray.available ? true : report.tray.enabled ? false : "warn"),
+      diagnosticPill(report.autostart.enabled ? "Login startup enabled" : report.autostart.conflict ? "Login startup conflict" : report.autostart.available ? "Login startup disabled" : "Login startup unavailable", report.autostart.enabled ? true : report.autostart.conflict ? false : "warn"),
+      diagnosticPill(report.notifications.supported ? "Notifications ready" : "Notifications unavailable", report.notifications.supported),
     );
     els.diagnosticsContent.textContent = JSON.stringify(report, null, 2);
   } catch (error) { els.diagnosticsContent.textContent = error.message; }
@@ -352,6 +390,121 @@ function renderAttachments() {
 
 async function chooseAttachments() { try { addAttachments(await api.chooseAttachments()); } catch (error) { showError(error); } }
 
+function stopCameraStream() {
+  for (const track of cameraCapture.stream?.getTracks?.() || []) track.stop();
+  cameraCapture.stream = null;
+  els.cameraVideo.srcObject = null;
+}
+
+function setCameraPreviewState(message, { error = false, live = false } = {}) {
+  els.cameraPreviewState.hidden = live;
+  els.cameraPreviewState.classList.toggle("error", error);
+  els.cameraPreviewState.textContent = message;
+}
+
+function cameraErrorMessage(error) {
+  if (error?.name === "NotAllowedError" || error?.name === "SecurityError") return "Camera access was denied. Allow camera access for Codex Linux, then try again.";
+  if (error?.name === "NotFoundError" || error?.name === "DevicesNotFoundError") return "No camera was found on this computer.";
+  if (error?.name === "NotReadableError" || error?.name === "TrackStartError") return "The camera is busy or unavailable. Close other camera apps and try again.";
+  if (error?.name === "OverconstrainedError") return "The selected camera is no longer available.";
+  return error?.message || "Unable to open the camera.";
+}
+
+function populateCameraDevices(devices, selectedId) {
+  cameraCapture.devices = devices;
+  els.cameraDevice.replaceChildren();
+  devices.forEach((device, index) => els.cameraDevice.add(new Option(device.label || `Camera ${index + 1}`, device.deviceId)));
+  if (selectedId && devices.some((device) => device.deviceId === selectedId)) els.cameraDevice.value = selectedId;
+  els.cameraDeviceField.hidden = devices.length < 2;
+}
+
+function handleCameraFailure(error) {
+  console.error(error);
+  stopCameraStream();
+  els.captureCamera.disabled = true;
+  els.cameraResolution.textContent = "Camera unavailable";
+  setCameraPreviewState(cameraErrorMessage(error), { error: true });
+}
+
+async function startCamera(deviceId = null) {
+  if (!navigator.mediaDevices?.getUserMedia) throw new Error("Camera capture is not supported by this desktop runtime.");
+  const requestId = ++cameraCapture.requestId;
+  stopCameraStream();
+  els.captureCamera.disabled = true;
+  els.cameraResolution.textContent = "Waiting for video…";
+  setCameraPreviewState(deviceId ? "Switching cameras…" : "Requesting camera access…");
+  const video = {
+    width: { ideal: 1280 },
+    height: { ideal: 720 },
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+  };
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video });
+  if (requestId !== cameraCapture.requestId || els.cameraOverlay.hidden) {
+    stream.getTracks().forEach((track) => track.stop());
+    return;
+  }
+  cameraCapture.stream = stream;
+  els.cameraVideo.srcObject = stream;
+  await els.cameraVideo.play();
+  const track = stream.getVideoTracks()[0];
+  const settings = track?.getSettings?.() || {};
+  let devices = [];
+  try { devices = (await navigator.mediaDevices.enumerateDevices()).filter((device) => device.kind === "videoinput"); }
+  catch (error) { console.warn("Unable to list cameras", error); }
+  if (requestId !== cameraCapture.requestId) return;
+  populateCameraDevices(devices, settings.deviceId || deviceId);
+  els.cameraResolution.textContent = `${els.cameraVideo.videoWidth || settings.width || "—"} × ${els.cameraVideo.videoHeight || settings.height || "—"}`;
+  els.captureCamera.disabled = !els.cameraVideo.videoWidth || !els.cameraVideo.videoHeight;
+  setCameraPreviewState("", { live: true });
+  track?.addEventListener("ended", () => {
+    if (cameraCapture.stream !== stream || els.cameraOverlay.hidden) return;
+    handleCameraFailure(new DOMException("The camera was disconnected.", "NotReadableError"));
+  }, { once: true });
+}
+
+function closeCamera() {
+  cameraCapture.requestId += 1;
+  stopCameraStream();
+  cameraCapture.devices = [];
+  els.cameraOverlay.hidden = true;
+  els.cameraDevice.replaceChildren();
+  els.cameraDeviceField.hidden = true;
+  els.captureCamera.disabled = true;
+}
+
+function openCamera() {
+  closeRegionCapture();
+  els.screenshotOverlay.hidden = true;
+  els.cameraOverlay.hidden = false;
+  els.cameraDescription.textContent = "Camera video stays on this device. Only the still image you capture is attached.";
+  startCamera().catch((error) => {
+    if (!els.cameraOverlay.hidden) handleCameraFailure(error);
+  });
+}
+
+async function captureCameraFrame() {
+  const width = els.cameraVideo.videoWidth;
+  const height = els.cameraVideo.videoHeight;
+  if (!cameraCapture.stream || !width || !height) return;
+  const scale = Math.min(1, 2560 / Math.max(width, height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(width * scale));
+  canvas.height = Math.max(1, Math.round(height * scale));
+  const context = canvas.getContext("2d", { alpha: false });
+  if (!context) throw new Error("Unable to prepare the camera image");
+  context.drawImage(els.cameraVideo, 0, 0, canvas.width, canvas.height);
+  els.captureCamera.disabled = true;
+  els.cameraResolution.textContent = "Attaching photo…";
+  try {
+    addAttachments([await api.saveCameraFrame(canvas.toDataURL("image/png"))]);
+    closeCamera();
+  } catch (error) {
+    els.captureCamera.disabled = false;
+    els.cameraResolution.textContent = `${width} × ${height}`;
+    throw error;
+  }
+}
+
 function imageCropForSelection() {
   if (!regionCapture.selection || !els.regionImage.naturalWidth || !els.regionImage.naturalHeight) return null;
   const displayed = els.regionCanvas.getBoundingClientRect();
@@ -510,9 +663,10 @@ async function startTerminal(existing = null) {
   if (!cwd) return;
   const terminal = existing || createTerminalTab(state.terminals, { cwd });
   if (existing?.handle && ["running", "starting"].includes(existing.status)) {
+    existing.expectedExit = true;
     try { await api.killTerminal(existing.handle); } catch {}
   }
-  Object.assign(terminal, { cwd, handle: null, command: null, output: "Starting project shell…\n", status: "starting", exitCode: null, unread: false });
+  Object.assign(terminal, { cwd, handle: null, command: null, output: "Starting project shell…\n", status: "starting", exitCode: null, unread: false, expectedExit: false });
   activateTerminal(state.terminals, terminal.id); renderTerminal();
   try {
     const response = await api.startTerminal({ cwd, cols: 110, rows: 28 });
@@ -526,6 +680,7 @@ async function startTerminal(existing = null) {
     terminal.status = "error";
     appendTerminalOutput(terminal, `\n[terminal failed to start: ${error.message}]\n`, { visible: terminalPanelVisible() });
     renderTerminal();
+    api.notifyTerminal({ processHandle: `start:${terminal.id}`, terminalId: terminal.id, exitCode: null, failedToStart: true }).catch(() => {});
     throw error;
   }
 }
@@ -533,6 +688,7 @@ async function closeTerminalTab(id) {
   const terminal = state.terminals.tabs.find((tab) => tab.id === id);
   if (!terminal) return;
   if (terminal.handle && ["running", "starting"].includes(terminal.status)) {
+    terminal.expectedExit = true;
     try { await api.killTerminal(terminal.handle); } catch (error) { console.warn("Unable to stop terminal while closing its tab", error); }
   }
   removeTerminal(state.terminals, id); renderTerminal();
@@ -574,9 +730,12 @@ function handleNotification(method, params) {
     const terminal = terminalForHandle(state.terminals, params.processHandle);
     if (!terminal) return;
     const visible = terminal.id === state.terminals.activeId && terminalPanelVisible();
+    const expectedExit = terminal.expectedExit;
     const finalOutput = `${params.stdout || ""}${params.stderr || ""}`;
     appendTerminalOutput(terminal, finalOutput || `\n[process exited ${params.exitCode ?? "unknown"}]\n`, { visible });
-    terminal.status = "exited"; terminal.exitCode = params.exitCode ?? null; renderTerminal(); return;
+    terminal.status = "exited"; terminal.exitCode = params.exitCode ?? null; terminal.expectedExit = false; renderTerminal();
+    if (!visible && !expectedExit) api.notifyTerminal({ processHandle: params.processHandle, terminalId: terminal.id, exitCode: terminal.exitCode, failedToStart: false }).catch(() => {});
+    return;
   }
   else if (method === "error" || method === "warning" || method === "deprecationNotice") toast(params.message || params.error?.message || "Codex reported a warning");
   else if (method === "thread/name/updated") { if (params.name) els.threadTitle.textContent = params.name; refreshThreads(); }
@@ -584,6 +743,31 @@ function handleNotification(method, params) {
 }
 
 function queueRequest(request) { state.requestQueue.push(request); if (!state.currentRequest) showNextRequest(); }
+
+async function activateNotificationTarget(target = {}) {
+  if (target.kind === "thread") {
+    if (target.threadId && target.threadId !== state.activeThread?.id) await resumeThread(target.threadId);
+    els.conversation.scrollTop = els.conversation.scrollHeight;
+    if (!state.activeTurnId) els.prompt.focus();
+    return;
+  }
+  if (target.kind === "request") {
+    if (!state.currentRequest) return;
+    els.overlay.hidden = false;
+    (els.allow.hidden ? els.deny : els.allow).focus();
+    return;
+  }
+  if (target.kind === "terminal") {
+    const terminal = terminalForHandle(state.terminals, target.processHandle) || state.terminals.tabs.find((tab) => tab.id === target.terminalId);
+    if (!terminal) return;
+    activateTerminal(state.terminals, terminal.id);
+    els.terminalPanel.classList.add("open");
+    els.terminalPanel.setAttribute("aria-hidden", "false");
+    renderTerminal();
+    (terminal.status === "running" ? els.terminalInput : els.terminalOutput).focus();
+  }
+}
+
 function showNextRequest() {
   state.currentRequest = state.requestQueue.shift() || null; if (!state.currentRequest) { els.overlay.hidden = true; return; }
   const { method, params } = state.currentRequest; els.overlay.hidden = false; els.requestQuestions.replaceChildren(); els.requestCommand.hidden = false; els.allowSession.hidden = false; els.allow.hidden = false;
@@ -665,6 +849,9 @@ api.onEvent(async (event) => {
     }
     handleNotification(event.method, event.params || {});
   } else if (event.kind === "request") queueRequest(event);
+  else if (event.kind === "notificationActivated") {
+    try { await activateNotificationTarget(event.target); } catch (error) { showError(error); }
+  }
   else if (event.kind === "status") setConnection(event.connected, event.error);
   else if (event.kind === "compatibility") {
     state.compatibility = event.compatibility; renderAuth(); renderTerminal(); renderDiff();
@@ -684,6 +871,10 @@ for (const eventName of ["dragenter", "dragover"]) els.composer.addEventListener
 for (const eventName of ["dragleave", "drop"]) els.composer.addEventListener(eventName, (event) => { event.preventDefault(); els.composer.classList.remove("dragging"); });
 els.composer.addEventListener("drop", async (event) => { try { const paths = [...event.dataTransfer.files].map((file) => api.pathForFile(file)).filter(Boolean); addAttachments(await api.prepareAttachments(paths)); } catch (error) { showError(error); } });
 els.attach.addEventListener("click", chooseAttachments); els.screenshot.addEventListener("click", showCaptureSources); els.closeCapture.addEventListener("click", () => { els.screenshotOverlay.hidden = true; });
+els.camera.addEventListener("click", openCamera);
+for (const button of [els.closeCamera, els.cancelCamera]) button.addEventListener("click", closeCamera);
+els.cameraDevice.addEventListener("change", () => startCamera(els.cameraDevice.value).catch(handleCameraFailure));
+els.captureCamera.addEventListener("click", () => captureCameraFrame().catch(showError));
 els.regionCanvas.addEventListener("pointerdown", (event) => {
   if (event.button !== 0 || !regionCapture.source || !els.regionImage.complete) return;
   event.preventDefault();
@@ -752,6 +943,10 @@ els.closeAuth.addEventListener("click", () => { els.authOverlay.hidden = true; }
 els.shortcutSelect.addEventListener("change", () => saveDesktopPreferences({ quickPromptShortcut: els.shortcutSelect.value || null }));
 els.trayEnabled.addEventListener("change", () => saveDesktopPreferences({ trayEnabled: els.trayEnabled.checked }));
 els.closeToTray.addEventListener("change", () => saveDesktopPreferences({ closeToTray: els.closeToTray.checked }));
+els.launchAtLogin.addEventListener("change", () => saveDesktopPreferences({ launchAtLogin: els.launchAtLogin.checked }));
+els.notifyTurnComplete.addEventListener("change", () => saveDesktopPreferences({ notifyTurnComplete: els.notifyTurnComplete.checked }));
+els.notifyApproval.addEventListener("change", () => saveDesktopPreferences({ notifyApproval: els.notifyApproval.checked }));
+els.notifyTerminal.addEventListener("change", () => saveDesktopPreferences({ notifyTerminal: els.notifyTerminal.checked }));
 els.authDocs.addEventListener("click", () => api.openExternal("https://developers.openai.com/codex/cli/"));
 els.retryConnection.addEventListener("click", async () => { try { applyBootstrap(await api.bootstrap()); toast("Codex connected"); } catch (error) { state.connectionError = error.message; showError(error); renderAuth(); } });
 els.chooseCli.addEventListener("click", async () => { try { const result = await api.chooseCodexCli(); if (result) { applyBootstrap(result); toast("Codex CLI connected"); } } catch (error) { state.connectionError = error.message; showError(error); renderAuth(); } });
@@ -765,7 +960,8 @@ document.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") { event.preventDefault(); chooseAndStartThread().catch(showError); }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "j") { event.preventDefault(); openTerminal(); }
   if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === "`" && terminalPanelVisible()) { event.preventDefault(); startTerminal().catch(showError); }
-  if (event.key === "Escape") { els.diffPanel.classList.remove("open"); els.terminalPanel.classList.remove("open"); els.screenshotOverlay.hidden = true; closeRegionCapture(); els.diagnosticsOverlay.hidden = true; els.authOverlay.hidden = true; }
+  if (event.key === "Escape") { els.diffPanel.classList.remove("open"); els.terminalPanel.classList.remove("open"); els.screenshotOverlay.hidden = true; closeCamera(); closeRegionCapture(); els.diagnosticsOverlay.hidden = true; els.authOverlay.hidden = true; }
 });
+window.addEventListener("beforeunload", closeCamera);
 for (const button of document.querySelectorAll("[data-prompt]")) button.addEventListener("click", () => chooseAndStartThread(button.dataset.prompt).catch(showError));
 bootstrap();

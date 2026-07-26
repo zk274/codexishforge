@@ -17,6 +17,7 @@ export function createTerminalTab(collection, { cwd, id = `terminal-tab-${collec
     status: "starting",
     exitCode: null,
     unread: false,
+    expectedExit: false,
   };
   collection.tabs.push(tab);
   collection.activeId = tab.id;
