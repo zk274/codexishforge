@@ -18,7 +18,7 @@ const regionCapture = { source: null, start: null, selection: null, dragging: fa
 const cameraCapture = { stream: null, requestId: 0, devices: [] };
 
 const els = {
-  home: $("#homeButton"), settings: $("#settingsButton"),
+  home: $("#homeButton"), brandMenuButton: $("#brandMenuButton"), brandMenu: $("#brandMenu"), settings: $("#settingsButton"),
   threadList: $("#threadList"), threadSearch: $("#threadSearch"), refresh: $("#refreshButton"),
   newThread: $("#newThreadButton"), openProject: $("#openProjectButton"), folder: $("#folderButton"), folderName: $("#folderName"),
   threadTitle: $("#threadTitle"), projectPath: $("#projectPath"), welcome: $("#welcome"), messages: $("#messages"), conversation: $("#conversation"),
@@ -92,7 +92,7 @@ function showDialog(overlay, preferredFocus = null) {
   });
 }
 
-function hideDialog(overlay, fallbackFocus = els.settings) {
+function hideDialog(overlay, fallbackFocus = els.brandMenuButton) {
   if (overlay.hidden) return;
   overlay.hidden = true;
   syncModalInert();
@@ -131,11 +131,18 @@ function closeActiveModal(overlay) {
   else if (overlay === els.regionOverlay) closeRegionCapture();
   else if (overlay === els.screenshotOverlay) hideDialog(els.screenshotOverlay, els.screenshot);
   else if (overlay === els.diagnosticsOverlay) hideDialog(els.diagnosticsOverlay, els.more);
-  else if (overlay === els.authOverlay) hideDialog(els.authOverlay, els.settings);
+  else if (overlay === els.authOverlay) hideDialog(els.authOverlay, els.brandMenuButton);
 }
 
 function closeOnBackdropClick(event) {
   if (event.target === event.currentTarget) closeActiveModal(event.currentTarget);
+}
+
+function setBrandMenuOpen(open, { restoreFocus = false } = {}) {
+  els.brandMenu.hidden = !open;
+  els.brandMenuButton.setAttribute("aria-expanded", String(open));
+  if (open) requestAnimationFrame(() => els.settings.focus());
+  else if (restoreFocus) els.brandMenuButton.focus();
 }
 
 function applyAccessibilityPreferences(preferences) {
@@ -359,6 +366,7 @@ async function runUpdateAction(action) {
 }
 
 async function openAuth() {
+  setBrandMenuOpen(false);
   showDialog(els.authOverlay, els.closeAuth);
   try { state.cli = await api.cliStatus(); } catch (error) { state.connectionError = error.message; }
   try { state.desktop = await api.desktopPreferences(); } catch (error) { console.warn("Unable to read desktop preferences", error); }
@@ -1269,9 +1277,18 @@ new ResizeObserver(() => {
 }).observe(els.terminalOutput);
 els.deny.addEventListener("click", () => answerCurrent("deny")); els.allowSession.addEventListener("click", () => answerCurrent("session")); els.allow.addEventListener("click", () => answerCurrent("allow"));
 els.accountButton.addEventListener("click", openAuth);
-els.settings.addEventListener("click", openAuth);
+els.brandMenuButton.addEventListener("click", () => setBrandMenuOpen(els.brandMenu.hidden));
+els.brandMenuButton.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowDown") return;
+  event.preventDefault();
+  setBrandMenuOpen(true);
+});
+els.settings.addEventListener("click", () => {
+  setBrandMenuOpen(false, { restoreFocus: true });
+  openAuth();
+});
 els.home.addEventListener("click", showHome);
-els.closeAuth.addEventListener("click", () => hideDialog(els.authOverlay, els.settings));
+els.closeAuth.addEventListener("click", () => hideDialog(els.authOverlay, els.brandMenuButton));
 els.shortcutSelect.addEventListener("change", () => saveDesktopPreferences({ quickPromptShortcut: els.shortcutSelect.value || null }));
 els.trayEnabled.addEventListener("change", () => saveDesktopPreferences({ trayEnabled: els.trayEnabled.checked }));
 els.closeToTray.addEventListener("change", () => saveDesktopPreferences({ closeToTray: els.closeToTray.checked }));
@@ -1300,11 +1317,19 @@ els.showLog.addEventListener("click", () => api.showLogFile().catch(showError));
 for (const overlay of [els.authOverlay, els.screenshotOverlay, els.cameraOverlay, els.diagnosticsOverlay]) {
   overlay.addEventListener("click", closeOnBackdropClick);
 }
+document.addEventListener("click", (event) => {
+  if (!els.brandMenu.hidden && !event.target.closest(".brand-menu")) setBrandMenuOpen(false);
+});
 document.addEventListener("keydown", (event) => {
   const modal = activeModal();
   if (modal) {
     if (trapModalFocus(event, modal)) return;
     if (event.key === "Escape") { event.preventDefault(); closeActiveModal(modal); }
+    return;
+  }
+  if (!els.brandMenu.hidden && event.key === "Escape") {
+    event.preventDefault();
+    setBrandMenuOpen(false, { restoreFocus: true });
     return;
   }
   const editable = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || event.target?.isContentEditable;

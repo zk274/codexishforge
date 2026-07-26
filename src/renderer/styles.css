@@ -26,10 +26,19 @@ button { color: inherit; }
 .skip-link:focus { transform:translateY(0); }
 :where(button,input,textarea,select,a,[tabindex]):focus-visible { outline:2px solid var(--focus-ring);outline-offset:2px; }
 
-.titlebar { height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 calc(18px + var(--window-controls-width)) 0 18px; border-bottom: 1px solid var(--line-soft); -webkit-app-region: drag; font-size: 12px; font-weight: 650; letter-spacing: .01em; }
-.brand-mark { width: 20px; height: 20px; border: 1px solid #5b5e54; border-radius: 6px; display: grid; place-items: center; color: var(--accent); font-size: 16px; }
+.titlebar { position:relative;z-index:20;height:44px;display:flex;align-items:center;gap:8px;padding:0 calc(18px + var(--window-controls-width)) 0 18px;border-bottom:1px solid var(--line-soft);-webkit-app-region:drag;font-size:12px;font-weight:650;letter-spacing:.01em; }
+.brand-menu { position:relative;-webkit-app-region:no-drag; }
+.brand-mark { width:24px;height:24px;border:1px solid #5b5e54;border-radius:7px;display:grid;place-items:center;color:var(--accent);font-size:17px; }
+.brand-mark:hover,.brand-mark[aria-expanded="true"] { border-color:#7b806f;background:#242520; }
+.brand-menu-popover { position:absolute;z-index:25;top:31px;left:0;width:220px;padding:6px;border:1px solid #45473f;border-radius:9px;background:#20211d;box-shadow:0 16px 45px #000b; }
+.brand-menu-popover[hidden] { display:none; }
+.brand-menu-popover button { width:100%;display:grid;grid-template-columns:22px minmax(0,1fr);gap:8px;align-items:start;padding:9px;border-radius:6px;color:var(--text);text-align:left; }
+.brand-menu-popover button:hover,.brand-menu-popover button:focus-visible { background:#2a2b26; }
+.brand-menu-popover strong,.brand-menu-popover small { display:block; }
+.brand-menu-popover strong { font-size:11px; }
+.brand-menu-popover small { margin-top:2px;color:var(--faint);font-size:8px;line-height:1.4; }
 .community-pill { color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 1px 7px; font-size: 10px; font-weight: 500; }
-.titlebar-navigation { margin-left:auto;display:flex;align-items:center;gap:5px;-webkit-app-region:no-drag; }.titlebar-button { height:28px;display:flex;align-items:center;gap:6px;padding:0 9px;border:1px solid transparent;border-radius:6px;color:var(--muted);font-size:10px;font-weight:600; }.titlebar-button:hover { border-color:var(--line);background:#20211d;color:var(--text); }.titlebar-button:disabled { opacity:.38;cursor:default; }.titlebar-button:disabled:hover { border-color:transparent;background:transparent;color:var(--muted); }
+.titlebar-navigation { position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;-webkit-app-region:no-drag; }.titlebar-button { height:28px;display:flex;align-items:center;gap:6px;padding:0 9px;border:1px solid transparent;border-radius:6px;color:var(--muted);font-size:10px;font-weight:600; }.titlebar-button:hover { border-color:var(--line);background:#20211d;color:var(--text); }.titlebar-button:disabled { opacity:.38;cursor:default; }.titlebar-button:disabled:hover { border-color:transparent;background:transparent;color:var(--muted); }
 .app-shell { display: grid; grid-template-columns: 268px minmax(0, 1fr); height: calc(100vh - 44px); min-height:0;overflow:hidden; }
 
 .sidebar { min-width: 0;min-height:0;overflow:hidden; background: #1a1b18; border-right: 1px solid var(--line-soft); display: flex; flex-direction: column; }
@@ -212,7 +221,7 @@ html.high-contrast {
   --danger:#ffb4aa;
   --focus-ring:#fff36b;
 }
-html.high-contrast :where(.titlebar,.sidebar,.workspace,.composer,.diff-panel,.terminal-panel,.request-dialog,.auth-dialog,.capture-dialog,.camera-dialog,.diagnostics-dialog,.region-overlay) { background-color:#000;background-image:none;border-color:var(--line); }
+html.high-contrast :where(.titlebar,.brand-menu-popover,.sidebar,.workspace,.composer,.diff-panel,.terminal-panel,.request-dialog,.auth-dialog,.capture-dialog,.camera-dialog,.diagnostics-dialog,.region-overlay) { background-color:#000;background-image:none;border-color:var(--line); }
 html.high-contrast :where(.search-box,.thread-item.active,.message.user,.tool-card,.cli-location,.request-command,.capture-source,.camera-preview,.diagnostics-dialog pre,.terminal-panel pre,input,textarea,select) { background-color:#080808;border-color:var(--line);color:var(--text); }
 html.high-contrast :where(.ghost-button,.icon-button,.option-button,.secondary-button,.primary-action,.titlebar-button,.update-actions button,.capture-source-actions button) { border-color:var(--line); }
 html.high-contrast :where(.thread-item small,.account-card small,.workspace-title>span,.suggestions small,.toggle-setting small,.setting-status,.composer-note,.auth-description,.diagnostics-copy) { color:var(--muted); }

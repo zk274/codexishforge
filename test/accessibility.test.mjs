@@ -5,6 +5,7 @@ import test from "node:test";
 const html = fs.readFileSync(new URL("../src/renderer/index.html", import.meta.url), "utf8");
 const css = fs.readFileSync(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
 const app = fs.readFileSync(new URL("../src/renderer/app.js", import.meta.url), "utf8");
+const main = fs.readFileSync(new URL("../src/main/main.mjs", import.meta.url), "utf8");
 
 test("primary navigation and changing status have accessible semantics", () => {
   assert.match(html, /class="skip-link" href="#conversation"/);
@@ -31,7 +32,17 @@ test("window controls have reserved titlebar space and non-blocking dialogs dism
   assert.match(app, /function closeOnBackdropClick/);
   assert.match(app, /event\.target === event\.currentTarget/);
   assert.match(app, /\[els\.authOverlay, els\.screenshotOverlay, els\.cameraOverlay, els\.diagnosticsOverlay\]/);
-  assert.match(fs.readFileSync(new URL("../src/main/main.mjs", import.meta.url), "utf8"), /Dialog backdrop validation failed/);
+  assert.match(main, /Dialog backdrop validation failed/);
+});
+
+test("home is centered and account settings live in an accessible brand menu", () => {
+  assert.match(html, /id="brandMenuButton"[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"[^>]*aria-controls="brandMenu"/);
+  assert.match(html, /id="brandMenu"[^>]*role="menu"[^>]*hidden/);
+  assert.match(html, /id="settingsButton"[^>]*role="menuitem"/);
+  assert.match(css, /\.titlebar-navigation\s*\{[^}]*position:absolute;left:50%;top:50%;transform:translate\(-50%,-50%\)/);
+  assert.match(app, /function setBrandMenuOpen/);
+  assert.match(app, /!event\.target\.closest\("\.brand-menu"\)/);
+  assert.match(main, /Titlebar menu outside-click validation failed/);
 });
 
 test("keyboard paths cover threads, tabs, region capture, and global navigation", () => {

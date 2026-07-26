@@ -780,7 +780,7 @@ function createWindow({ show = true } = {}) {
     mainWindow = null;
     if (!isQuitting) app.quit();
   });
-  const captureArgument = process.argv.find((argument) => argument.startsWith("--capture-ui=") || argument.startsWith("--capture-long-thread-ui=") || argument.startsWith("--capture-diagnostics-ui=") || argument.startsWith("--capture-settings-ui=") || argument.startsWith("--capture-accessibility-ui=") || argument.startsWith("--capture-updates-ui=") || argument.startsWith("--capture-region-ui=") || argument.startsWith("--capture-camera-ui=") || argument.startsWith("--capture-live-camera-ui=") || argument.startsWith("--capture-camera-attachment-ui="));
+  const captureArgument = process.argv.find((argument) => argument.startsWith("--capture-ui=") || argument.startsWith("--capture-long-thread-ui=") || argument.startsWith("--capture-titlebar-menu-ui=") || argument.startsWith("--capture-diagnostics-ui=") || argument.startsWith("--capture-settings-ui=") || argument.startsWith("--capture-accessibility-ui=") || argument.startsWith("--capture-updates-ui=") || argument.startsWith("--capture-region-ui=") || argument.startsWith("--capture-camera-ui=") || argument.startsWith("--capture-live-camera-ui=") || argument.startsWith("--capture-camera-attachment-ui="));
   if (captureArgument) mainWindow.webContents.once("did-finish-load", () => setTimeout(async () => {
     if (captureArgument.startsWith("--capture-long-thread-ui=")) {
       await mainWindow.webContents.executeJavaScript(`(() => {
@@ -828,6 +828,30 @@ function createWindow({ show = true } = {}) {
       if (layout.turns !== 24 || layout.scrollHeight <= layout.clientHeight || layout.scrollTop <= 0 || layout.composerBottom > layout.viewportHeight || layout.accountBottom > layout.viewportHeight) {
         throw new Error(`Oversized thread layout validation failed: ${JSON.stringify(layout)}`);
       }
+    } else if (captureArgument.startsWith("--capture-titlebar-menu-ui=")) {
+      await mainWindow.webContents.executeJavaScript(`(async () => {
+        const button = document.querySelector("#brandMenuButton");
+        const menu = document.querySelector("#brandMenu");
+        button.click();
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const homeBounds = document.querySelector("#homeButton").getBoundingClientRect();
+        const buttonBounds = button.getBoundingClientRect();
+        const menuBounds = menu.getBoundingClientRect();
+        const state = {
+          menuOpen: !menu.hidden && button.getAttribute("aria-expanded") === "true",
+          settingsInMenu: menu.contains(document.querySelector("#settingsButton")),
+          homeCentered: Math.abs(homeBounds.left + homeBounds.width / 2 - window.innerWidth / 2) < 1,
+          menuAnchored: Math.abs(menuBounds.left - buttonBounds.left) < 1 && menuBounds.top >= buttonBounds.bottom,
+        };
+        if (!state.menuOpen || !state.settingsInMenu || !state.homeCentered || !state.menuAnchored) {
+          throw new Error("Titlebar menu validation failed: " + JSON.stringify(state));
+        }
+        document.body.click();
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        if (!menu.hidden) throw new Error("Titlebar menu outside-click validation failed");
+        button.click();
+      })()`);
+      await new Promise((resolve) => setTimeout(resolve, 250));
     } else if (captureArgument.startsWith("--capture-diagnostics-ui=")) {
       await mainWindow.webContents.executeJavaScript("document.querySelector('#moreButton').click()");
       await new Promise((resolve) => setTimeout(resolve, 500));

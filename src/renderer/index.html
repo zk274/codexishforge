@@ -10,15 +10,19 @@
   <body>
     <a class="skip-link" href="#conversation">Skip to conversation</a>
     <div class="titlebar">
-      <div class="brand-mark" aria-hidden="true">⌁</div>
+      <div class="brand-menu">
+        <button id="brandMenuButton" class="brand-mark" type="button" title="Open application menu" aria-label="Open application menu" aria-haspopup="menu" aria-expanded="false" aria-controls="brandMenu">⌁</button>
+        <div id="brandMenu" class="brand-menu-popover" role="menu" hidden>
+          <button id="settingsButton" type="button" role="menuitem">
+            <span aria-hidden="true">⚙</span><span><strong>Account &amp; settings</strong><small>Desktop, accessibility, and account</small></span>
+          </button>
+        </div>
+      </div>
       <span>Codex Linux</span>
       <span class="community-pill">community</span>
       <nav class="titlebar-navigation" aria-label="Application navigation">
         <button id="homeButton" class="titlebar-button" type="button" title="Return to the home screen" disabled>
           <span aria-hidden="true">⌂</span><span>Home</span>
-        </button>
-        <button id="settingsButton" class="titlebar-button" type="button" title="Open account and settings">
-          <span aria-hidden="true">⚙</span><span>Settings</span>
         </button>
       </nav>
     </div>
