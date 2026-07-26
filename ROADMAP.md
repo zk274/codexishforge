@@ -32,7 +32,8 @@ Codex Linux Community is a repository-first desktop coding agent. Desktop conven
 - [x] Camera capture and attachment preview
 - [x] Configurable notifications for completed turns, approvals, questions, and background terminals
 - [x] XDG launch-at-login with background tray startup
-- Protocol/deep links and updater channels
+- [x] Single-instance `codex-linux://` protocol and deep-link routing
+- [x] Stable/beta updater channels with explicit download and install controls
 - Accessibility audit, keyboard navigation, reduced motion, text scaling, and high-contrast support
 
 ## Later — Broader assistant capabilities

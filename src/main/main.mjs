@@ -6,14 +6,17 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import electronUpdater from "electron-updater";
 import { XdgAutostart, resolveAutostartExecutable, resolveXdgConfigHome } from "./autostart.mjs";
 import { CodexClient } from "./codex-client.mjs";
+import { DEEP_LINK_SCHEME, extractDeepLinkArgument, parseDeepLink } from "./deep-links.mjs";
 import { mergeDesktopPreferences, normalizeDesktopPreferences, shortcutCandidates, shouldHideOnClose } from "./desktop-preferences.mjs";
 import { resolveCodexCommand, validateCodexCommand } from "./codex-locator.mjs";
 import { GitService } from "./git-service.mjs";
 import { inspectCodexProtocol, unknownProtocolCompatibility } from "./protocol-compatibility.mjs";
 import { StructuredLogger } from "./structured-logger.mjs";
 import { createTrayIconPng } from "./tray-icon.mjs";
+import { UpdateService, detectLinuxPackageType, normalizeUpdatePreferences } from "./update-service.mjs";
 import {
   NOTIFICATION_DEDUPE_WINDOW_MS,
   notificationContent,
@@ -29,6 +32,10 @@ import {
 } from "../shared/camera-capture.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const { autoUpdater } = electronUpdater;
+const initialDeepLinkArgument = extractDeepLinkArgument(process.argv);
+const singleInstanceLockAcquired = app.requestSingleInstanceLock({ deepLink: initialDeepLinkArgument });
+if (!singleInstanceLockAcquired) app.quit();
 let client = null;
 let discovery = null;
 let mainWindow;
@@ -43,6 +50,19 @@ let shortcutError = null;
 let tray = null;
 let trayError = null;
 let autostart = null;
+let updateService = null;
+let updateCheckTimer = null;
+let updateCheckInterval = null;
+let deepLinkRendererReady = false;
+const pendingDeepLinkActions = [];
+const deepLinkState = {
+  handled: 0,
+  rejected: 0,
+  cancelled: 0,
+  lastKind: null,
+  lastSource: null,
+  lastError: null,
+};
 let notificationIcon = null;
 const notificationDedupe = new Map();
 const liveNotifications = new Set();
@@ -114,6 +134,10 @@ function desktopPreferences() {
   return normalizeDesktopPreferences(readSettings().desktop);
 }
 
+function updatePreferences() {
+  return normalizeUpdatePreferences(readSettings().updates);
+}
+
 function shortcutSnapshot() {
   return {
     requested: shortcutRequested,
@@ -147,12 +171,45 @@ function autostartSnapshot() {
   };
 }
 
+function deepLinkSnapshot() {
+  return {
+    scheme: DEEP_LINK_SCHEME,
+    singleInstance: singleInstanceLockAcquired,
+    registeredByPackage: app.isPackaged,
+    rendererReady: deepLinkRendererReady,
+    pending: pendingDeepLinkActions.length,
+    ...deepLinkState,
+  };
+}
+
+function updateSnapshot() {
+  if (updateService) return updateService.snapshot();
+  return {
+    currentVersion: app.getVersion(),
+    packageType: app.isPackaged ? "unknown" : "development",
+    supported: false,
+    preferences: updatePreferences(),
+    phase: "unavailable",
+    availableVersion: null,
+    checkedAt: null,
+    percent: null,
+    transferred: null,
+    total: null,
+    error: null,
+    reason: "The updater has not been initialized.",
+    canCheck: false,
+    canDownload: false,
+    canInstall: false,
+  };
+}
+
 function desktopState() {
   return {
     preferences: desktopPreferences(),
     shortcut: shortcutSnapshot(),
     tray: traySnapshot(),
     autostart: autostartSnapshot(),
+    deepLinks: deepLinkSnapshot(),
     notifications: notificationSnapshot(),
     environment: {
       desktop: process.env.XDG_CURRENT_DESKTOP || null,
@@ -325,7 +382,7 @@ async function bootstrapData() {
     activeClient.request("account/read", { refreshToken: false }),
   ]);
   log("info", "codex.bootstrap_complete", { threads: threads.data.length, models: models.data.length, authenticated: Boolean(account.account) });
-  return { threads: threads.data, models: models.data, account, cli: cliStatus(), compatibility, desktop: desktopState(), lastThreadId: readSettings().lastThreadId || null };
+  return { threads: threads.data, models: models.data, account, cli: cliStatus(), compatibility, desktop: desktopState(), updates: updateSnapshot(), lastThreadId: readSettings().lastThreadId || null };
 }
 
 async function cliVersion() {
@@ -350,6 +407,8 @@ async function diagnosticsSnapshot() {
     quickPrompt: { ...shortcutSnapshot(), environment: desktopState().environment },
     tray: traySnapshot(),
     autostart: autostartSnapshot(),
+    deepLinks: deepLinkSnapshot(),
+    updates: updateSnapshot(),
     notifications: notificationSnapshot(),
     activeThread: activeThreadContext ? { id: activeThreadContext.id, project: path.basename(activeThreadContext.cwd), title: activeThreadContext.title } : null,
     logFile: logger?.filePath || null,
@@ -536,6 +595,12 @@ function registerIpc() {
   });
 
   ipcMain.handle("desktop:getPreferences", () => desktopState());
+  ipcMain.handle("desktop:deepLinksReady", (event) => {
+    if (event.sender !== mainWindow?.webContents) throw new Error("Deep-link readiness is limited to the main window");
+    deepLinkRendererReady = true;
+    flushDeepLinkActions();
+    return deepLinkSnapshot();
+  });
   ipcMain.handle("desktop:updatePreferences", (_event, updates = {}) => {
     if (!updates || typeof updates !== "object" || Array.isArray(updates)) throw new TypeError("Desktop preference updates must be an object");
     if (Object.hasOwn(updates, "launchAtLogin")) {
@@ -552,6 +617,25 @@ function registerIpc() {
     sendEvent({ kind: "desktopPreferences", desktop: result });
     return result;
   });
+
+  ipcMain.handle("updates:getState", () => updateSnapshot());
+  ipcMain.handle("updates:setPreferences", (_event, value = {}) => {
+    const preferences = normalizeUpdatePreferences(value);
+    const result = updateService.setPreferences(preferences);
+    const settings = readSettings();
+    writeSettings({ ...settings, updates: preferences });
+    scheduleAutomaticUpdateCheck(2500);
+    log("info", "updater.preferences_updated", preferences);
+    return result;
+  });
+  ipcMain.handle("updates:check", () => updateService.check());
+  ipcMain.handle("updates:download", () => updateService.download());
+  ipcMain.handle("updates:install", () => {
+    isQuitting = true;
+    updateService.install();
+    return true;
+  });
+  ipcMain.handle("updates:openReleases", () => shell.openExternal("https://github.com/zk274/linuxcodexzk/releases"));
 
   ipcMain.handle("git:status", async (_event, cwd) => {
     return git.status(cwd);
@@ -665,6 +749,7 @@ function createWindow({ show = true } = {}) {
     },
   });
   const windowSession = mainWindow.webContents.session;
+  mainWindow.webContents.on("did-start-loading", () => { deepLinkRendererReady = false; });
   windowSession.setPermissionCheckHandler((webContents, permission, _requestingOrigin, details = {}) => cameraPermissionCheckAllowed({
     trustedWindow: webContents === mainWindow?.webContents,
     permission,
@@ -689,7 +774,7 @@ function createWindow({ show = true } = {}) {
     mainWindow = null;
     if (!isQuitting) app.quit();
   });
-  const captureArgument = process.argv.find((argument) => argument.startsWith("--capture-ui=") || argument.startsWith("--capture-diagnostics-ui=") || argument.startsWith("--capture-settings-ui=") || argument.startsWith("--capture-region-ui=") || argument.startsWith("--capture-camera-ui=") || argument.startsWith("--capture-live-camera-ui=") || argument.startsWith("--capture-camera-attachment-ui="));
+  const captureArgument = process.argv.find((argument) => argument.startsWith("--capture-ui=") || argument.startsWith("--capture-diagnostics-ui=") || argument.startsWith("--capture-settings-ui=") || argument.startsWith("--capture-updates-ui=") || argument.startsWith("--capture-region-ui=") || argument.startsWith("--capture-camera-ui=") || argument.startsWith("--capture-live-camera-ui=") || argument.startsWith("--capture-camera-attachment-ui="));
   if (captureArgument) mainWindow.webContents.once("did-finish-load", () => setTimeout(async () => {
     if (captureArgument.startsWith("--capture-diagnostics-ui=")) {
       await mainWindow.webContents.executeJavaScript("document.querySelector('#moreButton').click()");
@@ -697,6 +782,11 @@ function createWindow({ show = true } = {}) {
     } else if (captureArgument.startsWith("--capture-settings-ui=")) {
       await mainWindow.webContents.executeJavaScript("document.querySelector('#accountButton').click()");
       await new Promise((resolve) => setTimeout(resolve, 500));
+    } else if (captureArgument.startsWith("--capture-updates-ui=")) {
+      await mainWindow.webContents.executeJavaScript("document.querySelector('#accountButton').click()");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await mainWindow.webContents.executeJavaScript("document.querySelector('.auth-dialog').scrollTop = document.querySelector('.auth-dialog').scrollHeight");
+      await new Promise((resolve) => setTimeout(resolve, 250));
     } else if (captureArgument.startsWith("--capture-camera-attachment-ui=")) {
       await mainWindow.webContents.executeJavaScript("document.querySelector('#cameraButton').click()");
       await new Promise((resolve) => setTimeout(resolve, 2500));
@@ -768,6 +858,77 @@ function showMainWindow() {
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
+}
+
+function queueDeepLinkAction(action) {
+  pendingDeepLinkActions.push(action);
+  if (pendingDeepLinkActions.length > 20) {
+    pendingDeepLinkActions.shift();
+    log("warn", "deep_link.queue_trimmed");
+  }
+  flushDeepLinkActions();
+}
+
+function flushDeepLinkActions() {
+  if (!deepLinkRendererReady || !mainWindow || mainWindow.isDestroyed()) return;
+  while (pendingDeepLinkActions.length) {
+    mainWindow.webContents.send("codex:event", { kind: "deepLink", action: pendingDeepLinkActions.shift() });
+  }
+}
+
+function rejectDeepLink(message, source) {
+  deepLinkState.rejected += 1;
+  deepLinkState.lastSource = source;
+  deepLinkState.lastError = message;
+  log("warn", "deep_link.rejected", { source, message });
+  queueDeepLinkAction({ kind: "error", message });
+}
+
+async function handleDeepLinkArgument(argument, source) {
+  showMainWindow();
+  let action;
+  try {
+    action = parseDeepLink(argument);
+  } catch (error) {
+    rejectDeepLink(error.message, source);
+    return;
+  }
+
+  if (action.kind === "project") {
+    let realPath;
+    try {
+      realPath = fs.realpathSync(action.cwd);
+      if (!fs.statSync(realPath).isDirectory()) throw new Error("The project path is not a directory.");
+    } catch (error) {
+      rejectDeepLink(`The linked project directory is unavailable: ${error.message}`, source);
+      return;
+    }
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: "question",
+      title: "Open linked project?",
+      message: "Open this project in Codex Linux Community?",
+      detail: realPath,
+      buttons: ["Open project", "Cancel"],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (response !== 0) {
+      deepLinkState.cancelled += 1;
+      deepLinkState.lastKind = action.kind;
+      deepLinkState.lastSource = source;
+      log("info", "deep_link.cancelled", { source, kind: action.kind });
+      return;
+    }
+    action = { kind: "project", cwd: realPath };
+  }
+
+  deepLinkState.handled += 1;
+  deepLinkState.lastKind = action.kind;
+  deepLinkState.lastSource = source;
+  deepLinkState.lastError = null;
+  log("info", "deep_link.handled", { source, kind: action.kind });
+  queueDeepLinkAction(action);
 }
 
 function createCompanionWindow() {
@@ -869,7 +1030,65 @@ function initializeAutostart() {
   }
 }
 
-app.whenReady().then(() => {
+function updaterLogMessage(values) {
+  return values.map((value) => {
+    if (value instanceof Error) return value.message;
+    if (typeof value === "string") return value;
+    try { return JSON.stringify(value); } catch { return String(value); }
+  }).join(" ").slice(0, 1000);
+}
+
+function scheduleAutomaticUpdateCheck(delay = 10_000) {
+  if (updateCheckTimer) clearTimeout(updateCheckTimer);
+  updateCheckTimer = null;
+  const snapshot = updateSnapshot();
+  const automationRun = process.argv.some((argument) => /^--(?:capture|test)-/.test(argument));
+  if (!snapshot.supported || !snapshot.preferences.autoCheck || automationRun) return;
+  updateCheckTimer = setTimeout(() => {
+    updateCheckTimer = null;
+    if (updateSnapshot().canCheck) updateService.check().catch(() => {});
+  }, delay);
+  updateCheckTimer.unref();
+}
+
+function initializeUpdater() {
+  autoUpdater.logger = {
+    info: (...values) => log("info", "updater.library", { message: updaterLogMessage(values) }),
+    warn: (...values) => log("warn", "updater.library", { message: updaterLogMessage(values) }),
+    error: (...values) => log("error", "updater.library", { message: updaterLogMessage(values) }),
+    debug: (...values) => log("debug", "updater.library", { message: updaterLogMessage(values) }),
+  };
+  updateService = new UpdateService({
+    updater: autoUpdater,
+    currentVersion: app.getVersion(),
+    packageType: detectLinuxPackageType({
+      packaged: app.isPackaged,
+      env: process.env,
+      execPath: app.getPath("exe"),
+      resourcesPath: process.resourcesPath,
+    }),
+    preferences: updatePreferences(),
+    onChange: (updates) => sendEvent({ kind: "updateState", updates }),
+    log,
+  });
+  log("info", "updater.initialized", updateSnapshot());
+  scheduleAutomaticUpdateCheck();
+  updateCheckInterval = setInterval(() => {
+    const snapshot = updateSnapshot();
+    if (snapshot.supported && snapshot.preferences.autoCheck && snapshot.canCheck) updateService.check().catch(() => {});
+  }, 6 * 60 * 60 * 1000);
+  updateCheckInterval.unref();
+}
+
+if (singleInstanceLockAcquired) app.on("second-instance", (_event, argv, _workingDirectory, additionalData = {}) => {
+  const argument = additionalData && typeof additionalData.deepLink === "string"
+    ? additionalData.deepLink
+    : extractDeepLinkArgument(argv);
+  if (argument) void handleDeepLinkArgument(argument, "second-instance");
+  else showMainWindow();
+});
+
+if (singleInstanceLockAcquired) app.whenReady().then(() => {
   sessionMarkerPath = path.join(app.getPath("userData"), "running.lock");
   previousUncleanShutdown = fs.existsSync(sessionMarkerPath);
   fs.mkdirSync(path.dirname(sessionMarkerPath), { recursive: true });
@@ -877,14 +1096,17 @@ app.whenReady().then(() => {
   logger = new StructuredLogger(path.join(app.getPath("userData"), "logs", "app.jsonl"));
   log("info", "app.started", { version: app.getVersion(), packaged: app.isPackaged, platform: process.platform, arch: process.arch, previousUncleanShutdown });
   initializeAutostart();
+  initializeUpdater();
   registerIpc();
   const startedByAutostart = process.argv.includes("--autostart");
-  createWindow({ show: !startedByAutostart });
+  const backgroundStartup = startedByAutostart && !initialDeepLinkArgument;
+  createWindow({ show: !backgroundStartup });
   createCompanionWindow();
   registerQuickPromptShortcut();
   updateTray();
-  if (startedByAutostart && !tray) showMainWindow();
-  log("info", "desktop.startup_mode", { autostart: startedByAutostart, background: startedByAutostart && Boolean(tray) });
+  if (backgroundStartup && !tray) showMainWindow();
+  log("info", "desktop.startup_mode", { autostart: startedByAutostart, background: backgroundStartup && Boolean(tray) });
+  if (initialDeepLinkArgument) void handleDeepLinkArgument(initialDeepLinkArgument, "initial");
   log(shortcutRegistered || !shortcutRequested ? "info" : "warn", "quick_prompt.shortcut", shortcutSnapshot());
   if (!shortcutRegistered && shortcutRequested) sendEvent({ kind: "log", message: shortcutError });
   app.on("activate", () => {
@@ -899,6 +1121,10 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => { isQuitting = true; });
 app.on("will-quit", () => {
+  if (updateCheckTimer) clearTimeout(updateCheckTimer);
+  if (updateCheckInterval) clearInterval(updateCheckInterval);
+  updateCheckTimer = null;
+  updateCheckInterval = null;
   globalShortcut.unregisterAll();
   tray?.destroy();
   tray = null;

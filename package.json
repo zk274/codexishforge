@@ -6,7 +6,11 @@
     "name": "Codex Linux Community contributors",
     "email": "maintainers@codexlinux.community"
   },
-  "homepage": "https://github.com/codex-linux-community/codex-linux-community",
+  "homepage": "https://github.com/zk274/linuxcodexzk",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zk274/linuxcodexzk.git"
+  },
   "license": "MIT",
   "desktopName": "community.codexlinux.desktop",
   "type": "module",
@@ -16,7 +20,7 @@
     "start": "npm run build:renderer --silent && env -u ELECTRON_RUN_AS_NODE electron .",
     "dev": "npm run build:renderer --silent && env -u ELECTRON_RUN_AS_NODE electron . --dev",
     "test": "node --test --experimental-test-isolation=none",
-    "check": "npm run build:renderer --silent && node --check src/main/main.mjs && node --check src/main/preload.cjs && node --check src/main/autostart.mjs && node --check src/main/codex-client.mjs && node --check src/main/codex-locator.mjs && node --check src/main/desktop-preferences.mjs && node --check src/main/git-service.mjs && node --check src/main/notification-policy.mjs && node --check src/main/protocol-compatibility.mjs && node --check src/main/structured-logger.mjs && node --check src/main/tray-icon.mjs && node --check src/shared/camera-capture.mjs && node --check src/shared/capture-region.mjs && node --check src/renderer/app.js && node --check src/renderer/terminal-state.mjs && node --check scripts/build-linux.mjs && node --test --experimental-test-isolation=none",
+    "check": "npm run build:renderer --silent && node --check src/main/main.mjs && node --check src/main/preload.cjs && node --check src/main/autostart.mjs && node --check src/main/codex-client.mjs && node --check src/main/codex-locator.mjs && node --check src/main/deep-links.mjs && node --check src/main/desktop-preferences.mjs && node --check src/main/git-service.mjs && node --check src/main/notification-policy.mjs && node --check src/main/protocol-compatibility.mjs && node --check src/main/structured-logger.mjs && node --check src/main/tray-icon.mjs && node --check src/main/update-service.mjs && node --check src/shared/camera-capture.mjs && node --check src/shared/capture-region.mjs && node --check src/renderer/app.js && node --check src/renderer/terminal-state.mjs && node --check scripts/build-linux.mjs && node --test --experimental-test-isolation=none",
     "dist": "npm run build:renderer --silent && node scripts/build-linux.mjs"
   },
   "devDependencies": {
@@ -28,6 +32,22 @@
     "appId": "community.codexlinux",
     "productName": "Codex Linux Community",
     "asar": true,
+    "generateUpdatesFilesForAllChannels": true,
+    "publish": {
+      "provider": "github",
+      "owner": "zk274",
+      "repo": "linuxcodexzk",
+      "channel": "latest",
+      "releaseType": "release"
+    },
+    "protocols": [
+      {
+        "name": "Codex Linux Community link",
+        "schemes": [
+          "codex-linux"
+        ]
+      }
+    ],
     "files": [
       "src/**/*",
       "assets/**/*",
@@ -55,6 +75,7 @@
   },
   "dependencies": {
     "dompurify": "^3.4.12",
+    "electron-updater": "^6.8.9",
     "highlight.js": "^11.11.1",
     "marked": "^16.4.2"
   }

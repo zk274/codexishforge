@@ -159,6 +159,22 @@
           <label class="toggle-setting"><input id="notifyApprovalInput" type="checkbox" /><span><strong>Approvals and questions</strong><small>Notify when Codex is waiting for your decision or answer.</small></span></label>
           <label class="toggle-setting"><input id="notifyTerminalInput" type="checkbox" /><span><strong>Background terminals</strong><small>Notify when an unseen terminal finishes or fails.</small></span></label>
           <p id="notificationPreferenceStatus" class="setting-status">Checking desktop notification support…</p>
+          <p class="settings-subheading">UPDATES</p>
+          <label class="setting-field" for="updateChannelSelect">
+            <span>Release channel</span>
+            <select id="updateChannelSelect">
+              <option value="stable">Stable</option>
+              <option value="beta">Beta</option>
+            </select>
+          </label>
+          <label class="toggle-setting"><input id="autoCheckUpdatesInput" type="checkbox" /><span><strong>Check automatically</strong><small>Check after startup and every six hours. Downloads always require confirmation.</small></span></label>
+          <p id="updatePreferenceStatus" class="setting-status">Checking update support…</p>
+          <div class="update-actions">
+            <button id="viewReleasesButton" class="secondary-button">Release notes ↗</button>
+            <button id="checkUpdatesButton" class="secondary-button">Check now</button>
+            <button id="downloadUpdateButton" class="secondary-button" hidden>Download update</button>
+            <button id="installUpdateButton" class="primary-action" hidden>Restart and install</button>
+          </div>
         </section>
         <div class="auth-actions">
           <button id="retryConnectionButton" class="secondary-button" hidden>Retry connection</button>

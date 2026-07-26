@@ -21,6 +21,8 @@ An unofficial Linux desktop client powered by the installed OpenAI Codex CLI. It
 - Configure or disable the global quick-prompt shortcut, with conflict and Wayland compositor guidance
 - Show, quick-prompt, or quit from the Linux system tray, with optional close-to-tray behavior
 - Launch at login through a managed XDG autostart entry, starting quietly in the tray when available
+- Open `codex-linux://` links in one running app instance to focus Codex, resume a thread, or confirm and open a local project
+- Check stable or beta release channels, explicitly download verified updates, and restart to install supported Linux packages
 - Receive configurable, privacy-safe notifications for completed turns, approval requests, questions, and background terminal exits
 - Restore the last active thread after restarting
 - Preflight the installed CLI's version-specific app-server schema, blocking incompatible builds and gating unavailable optional features
@@ -50,6 +52,18 @@ npm start
 
 The development launcher removes `ELECTRON_RUN_AS_NODE` because Codex-hosted shells may set it. This only affects local development; packaged desktop launches use Electron normally.
 
+## Deep links
+
+Installed packages register the `codex-linux` URL scheme. Supported links are intentionally limited:
+
+```text
+codex-linux://open
+codex-linux://thread/THREAD_ID
+codex-linux://project?path=%2Fabsolute%2Fproject
+```
+
+Project links show the resolved local directory and require confirmation. Links cannot contain prompts, commands, credentials, or relative paths.
+
 ## Verify and package
 
 ```bash
@@ -66,6 +80,12 @@ sudo snap install --classic --dangerous "dist/Codex Linux Community-0.3.0-amd64.
 ```
 
 Publishing a classic snap in the Snap Store requires a confinement review.
+
+## Update channels
+
+Packaged AppImage and Debian builds can check GitHub Releases for updates. The stable channel reads `latest` metadata; the beta channel also accepts prerelease builds. Checks can run automatically, but downloads and installation always require explicit confirmation. Snap updates remain managed by the Snap Store.
+
+Release builds generate update metadata with SHA-512 artifact hashes. Stable versions use ordinary semantic versions such as `0.3.0`; beta versions use a suffix such as `0.4.0-beta.1` and must be published as GitHub prereleases. The build script configures both the metadata channel and release type, while publishing remains a separate, explicit action.
 
 ## Architecture
 

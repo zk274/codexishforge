@@ -13,7 +13,7 @@ import { selectionFromPoints, selectionToImage } from "../shared/capture-region.
 
 const api = window.codexDesktop;
 const $ = (selector) => document.querySelector(selector);
-const state = { connected: false, connectionError: null, account: null, cli: null, compatibility: null, desktop: null, loginPending: false, restorationAttempted: false, threads: [], models: [], activeThread: null, turns: [], activeTurnId: null, diff: "", diffView: "working", git: null, gitDiffs: { working: "", staged: "" }, gitSelection: null, gitFileDiff: "", attachments: [], terminals: createTerminalCollection(), requestQueue: [], currentRequest: null };
+const state = { connected: false, connectionError: null, account: null, cli: null, compatibility: null, desktop: null, updates: null, loginPending: false, restorationAttempted: false, threads: [], models: [], activeThread: null, turns: [], activeTurnId: null, diff: "", diffView: "working", git: null, gitDiffs: { working: "", staged: "" }, gitSelection: null, gitFileDiff: "", attachments: [], terminals: createTerminalCollection(), requestQueue: [], currentRequest: null, pendingDeepLinks: [], flushingDeepLinks: false };
 const regionCapture = { source: null, start: null, selection: null, dragging: false };
 const cameraCapture = { stream: null, requestId: 0, devices: [] };
 
@@ -35,6 +35,8 @@ const els = {
   shortcutSelect: $("#shortcutSelect"), shortcutPreferenceStatus: $("#shortcutPreferenceStatus"), trayEnabled: $("#trayEnabledInput"), closeToTray: $("#closeToTrayInput"), trayPreferenceStatus: $("#trayPreferenceStatus"),
   launchAtLogin: $("#launchAtLoginInput"), autostartPreferenceStatus: $("#autostartPreferenceStatus"),
   notifyTurnComplete: $("#notifyTurnCompleteInput"), notifyApproval: $("#notifyApprovalInput"), notifyTerminal: $("#notifyTerminalInput"), notificationPreferenceStatus: $("#notificationPreferenceStatus"),
+  updateChannel: $("#updateChannelSelect"), autoCheckUpdates: $("#autoCheckUpdatesInput"), updatePreferenceStatus: $("#updatePreferenceStatus"),
+  checkUpdates: $("#checkUpdatesButton"), downloadUpdate: $("#downloadUpdateButton"), installUpdate: $("#installUpdateButton"), viewReleases: $("#viewReleasesButton"),
   gitBranch: $("#gitBranch"), refreshGit: $("#refreshGitButton"), terminalButton: $("#terminalButton"), terminalBadge: $("#terminalBadge"), terminalPanel: $("#terminalPanel"),
   terminalTabs: $("#terminalTabs"), terminalTitle: $("#terminalTitle"), terminalStatus: $("#terminalStatus"), terminalOutput: $("#terminalOutput"), terminalForm: $("#terminalForm"), terminalInput: $("#terminalInput"),
   newTerminal: $("#newTerminalButton"), closeTerminal: $("#closeTerminalButton"), restartTerminal: $("#restartTerminalButton"), attachmentTray: $("#attachmentTray"), attach: $("#attachButton"), screenshot: $("#screenshotButton"), camera: $("#cameraButton"), composer: $("#composer"),
@@ -184,6 +186,44 @@ function renderDesktopPreferences() {
   }
 }
 
+function renderUpdateState() {
+  const updates = state.updates;
+  if (!updates) return;
+  els.updateChannel.value = updates.preferences.channel;
+  els.autoCheckUpdates.checked = updates.preferences.autoCheck;
+  const locked = ["downloading", "downloaded"].includes(updates.phase);
+  els.updateChannel.disabled = locked || !updates.supported;
+  els.autoCheckUpdates.disabled = locked || !updates.supported;
+  els.checkUpdates.disabled = !updates.canCheck;
+  els.downloadUpdate.hidden = !updates.canDownload;
+  els.installUpdate.hidden = !updates.canInstall;
+  els.updatePreferenceStatus.className = "setting-status";
+
+  if (!updates.supported) {
+    els.updatePreferenceStatus.textContent = updates.reason || "Updates are unavailable for this package.";
+  } else if (updates.phase === "checking") {
+    els.updatePreferenceStatus.textContent = `Checking the ${updates.preferences.channel} channel…`;
+  } else if (updates.phase === "available") {
+    els.updatePreferenceStatus.classList.add("good");
+    els.updatePreferenceStatus.textContent = `Version ${updates.availableVersion || "new"} is available. Download it when you’re ready.`;
+  } else if (updates.phase === "downloading") {
+    els.updatePreferenceStatus.textContent = Number.isFinite(updates.percent)
+      ? `Downloading version ${updates.availableVersion || "update"}… ${Math.round(updates.percent)}%`
+      : `Downloading version ${updates.availableVersion || "update"}…`;
+  } else if (updates.phase === "downloaded") {
+    els.updatePreferenceStatus.classList.add("good");
+    els.updatePreferenceStatus.textContent = `Version ${updates.availableVersion || "update"} is ready. Restart to install it.`;
+  } else if (updates.phase === "current") {
+    els.updatePreferenceStatus.classList.add("good");
+    els.updatePreferenceStatus.textContent = `Version ${updates.currentVersion} is current on the ${updates.preferences.channel} channel.`;
+  } else if (updates.phase === "error") {
+    els.updatePreferenceStatus.classList.add("warn");
+    els.updatePreferenceStatus.textContent = updates.error || "The update check failed. Try again or open the releases page.";
+  } else {
+    els.updatePreferenceStatus.textContent = `${updates.packageType.toUpperCase()} package · ${updates.preferences.channel} channel · version ${updates.currentVersion}.`;
+  }
+}
+
 async function saveDesktopPreferences(updates) {
   try {
     state.desktop = await api.updateDesktopPreferences(updates);
@@ -191,11 +231,30 @@ async function saveDesktopPreferences(updates) {
   } catch (error) { renderDesktopPreferences(); showError(error); }
 }
 
+async function saveUpdatePreferences(changes) {
+  if (!state.updates) return;
+  try {
+    state.updates = await api.setUpdatePreferences({ ...state.updates.preferences, ...changes });
+    renderUpdateState();
+  } catch (error) { renderUpdateState(); showError(error); }
+}
+
+async function runUpdateAction(action) {
+  try {
+    if (action === "check") state.updates = await api.checkForUpdates();
+    else if (action === "download") state.updates = await api.downloadUpdate();
+    else if (action === "install") { await api.installUpdate(); return; }
+    renderUpdateState();
+  } catch (error) { showError(error); }
+}
+
 async function openAuth() {
   els.authOverlay.hidden = false;
   try { state.cli = await api.cliStatus(); } catch (error) { state.connectionError = error.message; }
   try { state.desktop = await api.desktopPreferences(); } catch (error) { console.warn("Unable to read desktop preferences", error); }
+  try { state.updates = await api.updateState(); } catch (error) { console.warn("Unable to read update state", error); }
   renderAuth();
+  renderUpdateState();
 }
 function diagnosticPill(label, condition) { const pill = document.createElement("span"); pill.className = `diagnostics-pill ${condition === "warn" ? "warn" : condition ? "good" : "bad"}`; pill.textContent = label; return pill; }
 async function openDiagnostics() {
@@ -209,6 +268,8 @@ async function openDiagnostics() {
       diagnosticPill(report.quickPrompt.registered ? "Shortcut ready" : report.quickPrompt.requested ? "Shortcut unavailable" : "Shortcut disabled", report.quickPrompt.registered ? true : report.quickPrompt.requested ? false : "warn"),
       diagnosticPill(report.tray.available ? "Tray ready" : report.tray.enabled ? "Tray unavailable" : "Tray disabled", report.tray.available ? true : report.tray.enabled ? false : "warn"),
       diagnosticPill(report.autostart.enabled ? "Login startup enabled" : report.autostart.conflict ? "Login startup conflict" : report.autostart.available ? "Login startup disabled" : "Login startup unavailable", report.autostart.enabled ? true : report.autostart.conflict ? false : "warn"),
+      diagnosticPill(report.deepLinks.singleInstance ? "Deep links ready" : "Deep links unavailable", report.deepLinks.singleInstance),
+      diagnosticPill(report.updates.supported ? `Updates ${report.updates.phase}` : `${report.updates.packageType} updates external`, report.updates.supported ? (report.updates.phase === "error" ? false : true) : "warn"),
       diagnosticPill(report.notifications.supported ? "Notifications ready" : "Notifications unavailable", report.notifications.supported),
     );
     els.diagnosticsContent.textContent = JSON.stringify(report, null, 2);
@@ -768,6 +829,57 @@ async function activateNotificationTarget(target = {}) {
   }
 }
 
+async function activateDeepLink(action = {}) {
+  if (action.kind === "error") {
+    toast(action.message || "That Codex Linux link could not be opened.");
+    return;
+  }
+  if (action.kind === "open") {
+    if (state.activeThread && !state.activeTurnId) els.prompt.focus();
+    else els.threadSearch.focus();
+    return;
+  }
+  if (!["thread", "project"].includes(action.kind)) return;
+  if (!state.connected || !state.account) {
+    state.pendingDeepLinks.push(action);
+    if (state.pendingDeepLinks.length > 10) state.pendingDeepLinks.shift();
+    await openAuth();
+    toast("Connect your Codex account to finish opening the link.");
+    return;
+  }
+  if (action.kind === "thread") {
+    await resumeThread(action.threadId);
+    return;
+  }
+  const existing = state.threads.find((thread) => thread.cwd === action.cwd);
+  if (existing) {
+    await resumeThread(existing.id);
+    return;
+  }
+  const response = await api.startThread({
+    cwd: action.cwd,
+    model: els.model.value,
+    approvalPolicy: "on-request",
+    sandbox: "workspace-write",
+  });
+  setActiveThread(response.thread, response.thread.turns || []);
+  await refreshThreads();
+}
+
+async function flushPendingDeepLinks() {
+  if (state.flushingDeepLinks || !state.connected || !state.account) return;
+  state.flushingDeepLinks = true;
+  try {
+    while (state.pendingDeepLinks.length && state.connected && state.account) {
+      await activateDeepLink(state.pendingDeepLinks.shift());
+    }
+  } catch (error) {
+    showError(error);
+  } finally {
+    state.flushingDeepLinks = false;
+  }
+}
+
 function showNextRequest() {
   state.currentRequest = state.requestQueue.shift() || null; if (!state.currentRequest) { els.overlay.hidden = true; return; }
   const { method, params } = state.currentRequest; els.overlay.hidden = false; els.requestQuestions.replaceChildren(); els.requestCommand.hidden = false; els.allowSession.hidden = false; els.allow.hidden = false;
@@ -831,26 +943,31 @@ async function bootstrap() {
     }
   }
   catch (error) { try { state.cli = await api.cliStatus(); } catch {} setConnection(false, error.message); await openAuth(); }
+  finally { try { await api.deepLinksReady(); } catch (error) { console.warn("Unable to initialize deep links", error); } }
 }
 
 function applyBootstrap(result) {
-  state.threads = result.threads; state.models = result.models; state.cli = result.cli || state.cli; state.compatibility = result.compatibility || state.compatibility; state.desktop = result.desktop || state.desktop; setConnection(true); renderAccount(result.account); renderModels(); renderThreads(); renderDesktopPreferences();
+  state.threads = result.threads; state.models = result.models; state.cli = result.cli || state.cli; state.compatibility = result.compatibility || state.compatibility; state.desktop = result.desktop || state.desktop; state.updates = result.updates || state.updates; setConnection(true); renderAccount(result.account); renderModels(); renderThreads(); renderDesktopPreferences(); renderUpdateState();
+  void flushPendingDeepLinks();
 }
 
 api.onEvent(async (event) => {
   if (event.kind === "notification") {
     if (event.method === "account/login/completed") {
       state.loginPending = false;
-      if (event.params.success) { try { renderAccount(await api.readAccount()); toast("Signed in to Codex"); } catch (error) { showError(error); } }
+      if (event.params.success) { try { renderAccount(await api.readAccount()); toast("Signed in to Codex"); void flushPendingDeepLinks(); } catch (error) { showError(error); } }
       else { state.connectionError = event.params.error || "Login failed"; toast(state.connectionError); }
       renderAuth();
     } else if (event.method === "account/updated") {
-      try { renderAccount(await api.readAccount()); } catch (error) { showError(error); }
+      try { renderAccount(await api.readAccount()); void flushPendingDeepLinks(); } catch (error) { showError(error); }
     }
     handleNotification(event.method, event.params || {});
   } else if (event.kind === "request") queueRequest(event);
   else if (event.kind === "notificationActivated") {
     try { await activateNotificationTarget(event.target); } catch (error) { showError(error); }
+  }
+  else if (event.kind === "deepLink") {
+    try { await activateDeepLink(event.action); } catch (error) { showError(error); }
   }
   else if (event.kind === "status") setConnection(event.connected, event.error);
   else if (event.kind === "compatibility") {
@@ -859,6 +976,7 @@ api.onEvent(async (event) => {
     else if (event.compatibility.status === "partial") toast(`Limited Codex protocol: ${event.compatibility.unavailableFeatures.join(", ")} unavailable`);
   }
   else if (event.kind === "desktopPreferences") { state.desktop = event.desktop; renderDesktopPreferences(); }
+  else if (event.kind === "updateState") { state.updates = event.updates; renderUpdateState(); }
   else if (event.kind === "quickPrompt") { if (state.activeThread) { els.prompt.value = event.text; updateComposer(); els.prompt.focus(); } else chooseAndStartThread(event.text).catch(showError); }
   else if (event.kind === "log" && /error/i.test(event.message)) console.warn(event.message);
 });
@@ -947,6 +1065,12 @@ els.launchAtLogin.addEventListener("change", () => saveDesktopPreferences({ laun
 els.notifyTurnComplete.addEventListener("change", () => saveDesktopPreferences({ notifyTurnComplete: els.notifyTurnComplete.checked }));
 els.notifyApproval.addEventListener("change", () => saveDesktopPreferences({ notifyApproval: els.notifyApproval.checked }));
 els.notifyTerminal.addEventListener("change", () => saveDesktopPreferences({ notifyTerminal: els.notifyTerminal.checked }));
+els.updateChannel.addEventListener("change", () => saveUpdatePreferences({ channel: els.updateChannel.value }));
+els.autoCheckUpdates.addEventListener("change", () => saveUpdatePreferences({ autoCheck: els.autoCheckUpdates.checked }));
+els.checkUpdates.addEventListener("click", () => runUpdateAction("check"));
+els.downloadUpdate.addEventListener("click", () => runUpdateAction("download"));
+els.installUpdate.addEventListener("click", () => runUpdateAction("install"));
+els.viewReleases.addEventListener("click", () => api.openReleases().catch(showError));
 els.authDocs.addEventListener("click", () => api.openExternal("https://developers.openai.com/codex/cli/"));
 els.retryConnection.addEventListener("click", async () => { try { applyBootstrap(await api.bootstrap()); toast("Codex connected"); } catch (error) { state.connectionError = error.message; showError(error); renderAuth(); } });
 els.chooseCli.addEventListener("click", async () => { try { const result = await api.chooseCodexCli(); if (result) { applyBootstrap(result); toast("Codex CLI connected"); } } catch (error) { state.connectionError = error.message; showError(error); renderAuth(); } });
