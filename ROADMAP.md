@@ -52,8 +52,8 @@ Codex Linux Community is a repository-first desktop coding agent. Desktop conven
 - [x] Reproducible AppImage, Debian, and Snap release gates with metadata and update-hash inspection
 - [x] Packaged launch smoke tests with a clean home directory and minimal desktop `PATH`
 - [x] Deterministic login/logout and approval-flow fixtures
-- [ ] In-app discovery and management for installed skills, plugins, and MCP servers
-- [ ] Configuration health checks with safe links to the owning Codex configuration
+- [x] In-app discovery and management for installed skills, plugins, and MCP servers
+- [x] Configuration health checks with safe links to the owning Codex configuration
 
 ## 0.6 — Tasks, agents, and worktrees
 

@@ -35,6 +35,13 @@ const featureRequirements = {
     ["serverRequests", "item/tool/requestUserInput"],
     ["serverRequests", "mcpServer/elicitation/request"],
   ],
+  skillInventory: [["clientRequests", "skills/list"]],
+  skillManagement: [["clientRequests", "skills/config/write"]],
+  pluginInventory: [["clientRequests", "plugin/installed"]],
+  mcpInventory: [["clientRequests", "mcpServerStatus/list"]],
+  mcpManagement: [["clientRequests", "config/mcpServer/reload"]],
+  configInventory: [["clientRequests", "config/read"]],
+  configManagement: [["clientRequests", "config/batchWrite"]],
 };
 
 const schemaFiles = {

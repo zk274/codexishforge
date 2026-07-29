@@ -3,9 +3,10 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
 export class CodexClient extends EventEmitter {
-  constructor({ command = "codex", spawnProcess = spawn, requestTimeoutMs = 30_000 } = {}) {
+  constructor({ command = "codex", clientVersion = "0.0.0", spawnProcess = spawn, requestTimeoutMs = 30_000 } = {}) {
     super();
     this.command = command;
+    this.clientVersion = clientVersion;
     this.spawnProcess = spawnProcess;
     this.requestTimeoutMs = requestTimeoutMs;
     this.process = null;
@@ -32,7 +33,7 @@ export class CodexClient extends EventEmitter {
     });
 
     this.serverInfo = await this.request("initialize", {
-      clientInfo: { name: "codex_linux_community", title: "Codex Linux Community", version: "0.3.0" },
+      clientInfo: { name: "codex_linux_community", title: "Codex Linux Community", version: this.clientVersion },
       capabilities: {
         experimentalApi: true,
         requestAttestation: false,

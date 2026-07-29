@@ -21,6 +21,9 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   desktopPreferences: () => ipcRenderer.invoke("desktop:getPreferences"),
   deepLinksReady: () => ipcRenderer.invoke("desktop:deepLinksReady"),
   updateDesktopPreferences: (updates) => ipcRenderer.invoke("desktop:updatePreferences", updates),
+  extensionInventory: (options) => ipcRenderer.invoke("extensions:get", options),
+  setExtensionEnabled: (payload) => ipcRenderer.invoke("extensions:setEnabled", payload),
+  showCodexConfig: (filePath) => ipcRenderer.invoke("extensions:showConfig", filePath),
   setTextScale: (value) => {
     const factor = Number(value);
     if (!textScales.has(factor)) throw new TypeError("Unsupported text scale");

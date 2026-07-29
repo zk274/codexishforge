@@ -13,6 +13,7 @@ const completeMethods = {
   clientRequests: new Set([
     "initialize", "thread/list", "thread/start", "thread/resume", "turn/start", "turn/interrupt", "model/list", "account/read",
     "account/login/start", "account/logout", "process/spawn", "process/writeStdin", "process/kill", "process/resizePty",
+    "skills/list", "skills/config/write", "plugin/installed", "mcpServerStatus/list", "config/mcpServer/reload", "config/read", "config/batchWrite",
   ]),
   clientNotifications: new Set(["initialized"]),
   serverNotifications: new Set([

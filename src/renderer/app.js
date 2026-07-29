@@ -15,12 +15,12 @@ import { selectionFromPoints, selectionToImage } from "../shared/capture-region.
 
 const api = window.codexDesktop;
 const $ = (selector) => document.querySelector(selector);
-const state = { connected: false, connectionError: null, account: null, cli: null, compatibility: null, desktop: null, updates: null, loginPending: false, restorationAttempted: false, threads: [], models: [], activeThread: null, turns: [], activeTurnId: null, diff: "", diffView: "working", git: null, gitDiffs: { working: "", staged: "" }, gitSelection: null, gitFileDiff: "", attachments: [], terminals: createTerminalCollection(), requestQueue: [], currentRequest: null, pendingDeepLinks: [], flushingDeepLinks: false };
+const state = { connected: false, connectionError: null, account: null, cli: null, compatibility: null, desktop: null, updates: null, extensions: null, loginPending: false, restorationAttempted: false, threads: [], models: [], activeThread: null, turns: [], activeTurnId: null, diff: "", diffView: "working", git: null, gitDiffs: { working: "", staged: "" }, gitSelection: null, gitFileDiff: "", attachments: [], terminals: createTerminalCollection(), requestQueue: [], currentRequest: null, pendingDeepLinks: [], flushingDeepLinks: false };
 const regionCapture = { source: null, start: null, selection: null, dragging: false };
 const cameraCapture = { stream: null, requestId: 0, devices: [] };
 
 const els = {
-  home: $("#homeButton"), brandMenuButton: $("#brandMenuButton"), brandMenu: $("#brandMenu"), settings: $("#settingsButton"),
+  home: $("#homeButton"), brandMenuButton: $("#brandMenuButton"), brandMenu: $("#brandMenu"), settings: $("#settingsButton"), extensions: $("#extensionsButton"),
   threadList: $("#threadList"), threadSearch: $("#threadSearch"), refresh: $("#refreshButton"),
   newThread: $("#newThreadButton"), openProject: $("#openProjectButton"), folder: $("#folderButton"), folderName: $("#folderName"),
   threadTitle: $("#threadTitle"), projectPath: $("#projectPath"), welcome: $("#welcome"), messages: $("#messages"), conversation: $("#conversation"),
@@ -41,6 +41,10 @@ const els = {
   notifyTurnComplete: $("#notifyTurnCompleteInput"), notifyApproval: $("#notifyApprovalInput"), notifyTerminal: $("#notifyTerminalInput"), notificationPreferenceStatus: $("#notificationPreferenceStatus"),
   updateChannel: $("#updateChannelSelect"), autoCheckUpdates: $("#autoCheckUpdatesInput"), updatePreferenceStatus: $("#updatePreferenceStatus"),
   checkUpdates: $("#checkUpdatesButton"), downloadUpdate: $("#downloadUpdateButton"), installUpdate: $("#installUpdateButton"), viewReleases: $("#viewReleasesButton"),
+  extensionsOverlay: $("#extensionsOverlay"), closeExtensions: $("#closeExtensionsButton"), refreshExtensions: $("#refreshExtensionsButton"),
+  extensionsSummary: $("#extensionsSummary"), extensionIssues: $("#extensionIssues"),
+  skillsList: $("#skillsList"), skillsCount: $("#skillsCount"), pluginsList: $("#pluginsList"), pluginsCount: $("#pluginsCount"),
+  mcpList: $("#mcpList"), mcpCount: $("#mcpCount"), configList: $("#configList"), configCount: $("#configCount"),
   gitBranch: $("#gitBranch"), refreshGit: $("#refreshGitButton"), terminalButton: $("#terminalButton"), terminalBadge: $("#terminalBadge"), terminalPanel: $("#terminalPanel"),
   terminalTabs: $("#terminalTabs"), terminalTitle: $("#terminalTitle"), terminalStatus: $("#terminalStatus"), terminalOutput: $("#terminalOutput"), terminalForm: $("#terminalForm"), terminalInput: $("#terminalInput"),
   newTerminal: $("#newTerminalButton"), closeTerminal: $("#closeTerminalButton"), restartTerminal: $("#restartTerminalButton"), attachmentTray: $("#attachmentTray"), attach: $("#attachButton"), screenshot: $("#screenshotButton"), camera: $("#cameraButton"), composer: $("#composer"),
@@ -68,7 +72,7 @@ function focusableElements(container) {
 }
 
 function modalOverlays() {
-  return [els.overlay, els.authOverlay, els.screenshotOverlay, els.cameraOverlay, els.diagnosticsOverlay, els.regionOverlay];
+  return [els.overlay, els.authOverlay, els.extensionsOverlay, els.screenshotOverlay, els.cameraOverlay, els.diagnosticsOverlay, els.regionOverlay];
 }
 
 function activeModal() {
@@ -132,6 +136,7 @@ function closeActiveModal(overlay) {
   if (overlay === els.cameraOverlay) closeCamera();
   else if (overlay === els.regionOverlay) closeRegionCapture();
   else if (overlay === els.screenshotOverlay) hideDialog(els.screenshotOverlay, els.screenshot);
+  else if (overlay === els.extensionsOverlay) hideDialog(els.extensionsOverlay, els.brandMenuButton);
   else if (overlay === els.diagnosticsOverlay) hideDialog(els.diagnosticsOverlay, els.more);
   else if (overlay === els.authOverlay) hideDialog(els.authOverlay, els.brandMenuButton);
 }
@@ -376,6 +381,191 @@ async function openAuth() {
   renderAuth();
   renderUpdateState();
 }
+
+function extensionMeta(...values) {
+  const container = document.createElement("div");
+  container.className = "extension-meta";
+  for (const value of values.filter(Boolean)) {
+    const label = document.createElement("span");
+    label.textContent = value;
+    container.append(label);
+  }
+  return container;
+}
+
+function extensionState(label, condition) {
+  const status = document.createElement("span");
+  status.className = `extension-state ${condition === "warn" ? "warn" : condition ? "good" : "bad"}`;
+  status.textContent = label;
+  return status;
+}
+
+function extensionCard(item, { kind, manageable, statusLabel = item.enabled ? "Enabled" : "Disabled", statusCondition = item.enabled ? true : "warn", metadata = [] } = {}) {
+  const card = document.createElement("div");
+  card.className = "extension-card";
+  card.setAttribute("role", "listitem");
+  const main = document.createElement("div");
+  main.className = "extension-card-main";
+  const heading = document.createElement("div");
+  heading.className = "extension-card-title";
+  const title = document.createElement("strong");
+  title.textContent = item.name || item.displayName || item.id;
+  heading.append(title, extensionState(statusLabel, statusCondition));
+  const description = document.createElement("p");
+  description.textContent = item.description || "No description provided.";
+  main.append(heading, description, extensionMeta(...metadata));
+  const toggle = document.createElement("label");
+  toggle.className = "extension-toggle";
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.checked = item.enabled;
+  input.disabled = !manageable || !item.editable || item.managed;
+  input.setAttribute("aria-label", `${item.enabled ? "Disable" : "Enable"} ${item.name || item.displayName || item.id}`);
+  const toggleText = document.createElement("span");
+  toggleText.textContent = item.managed
+    ? "Managed"
+    : item.editable && manageable
+      ? item.enabled
+        ? "On"
+        : "Off"
+      : "Read only";
+  toggle.append(input, toggleText);
+  input.addEventListener("change", async () => {
+    input.disabled = true;
+    try {
+      state.extensions = await api.setExtensionEnabled({ kind, id: item.id, enabled: input.checked });
+      renderExtensions();
+      toast(`${item.name || item.displayName || item.id} ${input.checked ? "enabled" : "disabled"}`);
+    } catch (error) {
+      input.checked = item.enabled;
+      input.disabled = !manageable || !item.editable || item.managed;
+      showError(error);
+    }
+  });
+  card.append(main, toggle);
+  return card;
+}
+
+function renderExtensionSection(list, section, unavailableMessage, renderItem) {
+  list.replaceChildren();
+  if (!section?.available) {
+    const empty = document.createElement("p");
+    empty.className = "empty-list";
+    empty.textContent = section?.error || unavailableMessage;
+    list.append(empty);
+    return;
+  }
+  if (section.error) {
+    const empty = document.createElement("p");
+    empty.className = "empty-list";
+    empty.textContent = section.error;
+    list.append(empty);
+    return;
+  }
+  if (!section.value?.items?.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-list";
+    empty.textContent = "Nothing installed or configured.";
+    list.append(empty);
+    return;
+  }
+  for (const item of section.value.items) list.append(renderItem(item));
+}
+
+function renderExtensions() {
+  const inventory = state.extensions;
+  if (!inventory) return;
+  const summary = inventory.summary;
+  els.extensionsSummary.replaceChildren(
+    diagnosticPill(`${summary.enabledSkills}/${summary.skills} skills`, summary.skills ? true : "warn"),
+    diagnosticPill(`${summary.enabledPlugins}/${summary.plugins} plugins`, inventory.capabilities.pluginInventory ? (summary.plugins ? true : "warn") : "warn"),
+    diagnosticPill(`${summary.readyMcpServers}/${summary.mcpServers} MCP ready`, summary.mcpServers ? summary.readyMcpServers === summary.mcpServers : "warn"),
+    diagnosticPill(summary.issues ? `${summary.issues} issue${summary.issues === 1 ? "" : "s"}` : "Healthy", summary.issues ? false : true),
+  );
+  els.skillsCount.textContent = inventory.skills?.available ? String(summary.skills) : "N/A";
+  els.pluginsCount.textContent = inventory.plugins?.available ? String(summary.plugins) : "N/A";
+  els.mcpCount.textContent = inventory.mcp?.available ? String(summary.mcpServers) : "N/A";
+  els.configCount.textContent = String(inventory.configuration?.files?.length || 0);
+  els.extensionIssues.replaceChildren();
+  els.extensionIssues.hidden = !inventory.issues.length;
+  for (const issue of inventory.issues) {
+    const message = document.createElement("p");
+    message.textContent = `${issue.section}: ${issue.message}`;
+    els.extensionIssues.append(message);
+  }
+
+  renderExtensionSection(els.skillsList, inventory.skills, "This Codex CLI does not expose skill inventory.", (item) => extensionCard(item, {
+    kind: "skill",
+    manageable: inventory.capabilities.skillManagement,
+    metadata: [item.scope, `${item.dependencies} tool dependenc${item.dependencies === 1 ? "y" : "ies"}`],
+  }));
+  renderExtensionSection(els.pluginsList, inventory.plugins, "Installed plugin inventory is unavailable in this Codex CLI.", (item) => extensionCard(item, {
+    kind: "plugin",
+    manageable: inventory.capabilities.pluginManagement,
+    metadata: [item.marketplace, item.version ? `v${item.version}` : null, item.source],
+  }));
+  renderExtensionSection(els.mcpList, inventory.mcp, "This Codex CLI does not expose MCP server status.", (item) => extensionCard(item, {
+    kind: "mcp",
+    manageable: inventory.capabilities.mcpManagement,
+    statusLabel: item.status === "needs-auth" ? "Needs auth" : item.status === "ready" ? "Ready" : item.status === "disabled" ? "Disabled" : "Unavailable",
+    statusCondition: item.status === "ready" ? true : item.status === "needs-auth" || item.status === "disabled" ? "warn" : false,
+    metadata: [item.source, `${item.tools} tool${item.tools === 1 ? "" : "s"}`, item.authStatus, item.required ? "required" : null, item.version ? `v${item.version}` : null],
+  }));
+
+  els.configList.replaceChildren();
+  const files = inventory.configuration?.files || [];
+  if (!files.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-list";
+    empty.textContent = inventory.configuration?.error || "Codex did not report any configuration layers.";
+    els.configList.append(empty);
+  }
+  for (const file of files) {
+    const card = document.createElement("div");
+    card.className = "extension-card config-card";
+    card.setAttribute("role", "listitem");
+    const main = document.createElement("div");
+    main.className = "extension-card-main";
+    const title = document.createElement("div");
+    title.className = "extension-card-title";
+    const name = document.createElement("strong");
+    name.textContent = `${file.kind[0]?.toUpperCase() || ""}${file.kind.slice(1)} configuration`;
+    title.append(name, extensionState(file.exists ? "Available" : "Not created", file.exists ? true : "warn"));
+    const filePath = document.createElement("code");
+    filePath.textContent = file.path;
+    main.append(title, filePath, extensionMeta(file.editable ? "user editable" : "read only"));
+    const open = document.createElement("button");
+    open.className = "secondary-button";
+    open.textContent = file.exists ? "Show file" : "Open folder";
+    open.addEventListener("click", () => api.showCodexConfig(file.path).catch(showError));
+    card.append(main, open);
+    els.configList.append(card);
+  }
+}
+
+async function loadExtensions({ forceReload = false } = {}) {
+  els.refreshExtensions.disabled = true;
+  try {
+    state.extensions = await api.extensionInventory({ forceReload });
+    renderExtensions();
+  } catch (error) {
+    els.skillsList.replaceChildren();
+    const empty = document.createElement("p");
+    empty.className = "empty-list";
+    empty.textContent = error.message;
+    els.skillsList.append(empty);
+    showError(error);
+  } finally {
+    els.refreshExtensions.disabled = false;
+  }
+}
+
+function openExtensions() {
+  setBrandMenuOpen(false);
+  showDialog(els.extensionsOverlay, els.closeExtensions);
+  loadExtensions({ forceReload: true });
+}
+
 function diagnosticPill(label, condition) { const pill = document.createElement("span"); pill.className = `diagnostics-pill ${condition === "warn" ? "warn" : condition ? "good" : "bad"}`; pill.textContent = label; return pill; }
 async function openDiagnostics() {
   showDialog(els.diagnosticsOverlay, els.closeDiagnostics); els.diagnosticsContent.textContent = "Collecting diagnostics…"; els.diagnosticsStatus.replaceChildren();
@@ -926,6 +1116,11 @@ function openTerminal() {
   focusProjectTerminal({ create: true });
 }
 function handleNotification(method, params) {
+  if (method === "skills/changed") {
+    state.extensions = null;
+    if (!els.extensionsOverlay.hidden) loadExtensions({ forceReload: true });
+    return;
+  }
   if (params.threadId && params.threadId !== state.activeThread?.id) { if (["thread/name/updated", "thread/status/changed", "turn/completed"].includes(method)) refreshThreads(); return; }
   if (method === "turn/started") { state.activeTurnId = params.turn.id; const index = state.turns.findIndex((turn) => turn.id === params.turn.id); if (index === -1) state.turns.push(params.turn); else state.turns[index] = mergeTurnSnapshot(state.turns[index], params.turn); }
   else if (method === "item/started" || method === "item/completed") upsertItem(params.turnId, params.item);
@@ -1293,8 +1488,11 @@ els.settings.addEventListener("click", () => {
   setBrandMenuOpen(false, { restoreFocus: true });
   openAuth();
 });
+els.extensions.addEventListener("click", openExtensions);
 els.home.addEventListener("click", showHome);
 els.closeAuth.addEventListener("click", () => hideDialog(els.authOverlay, els.brandMenuButton));
+els.closeExtensions.addEventListener("click", () => hideDialog(els.extensionsOverlay, els.brandMenuButton));
+els.refreshExtensions.addEventListener("click", () => loadExtensions({ forceReload: true }));
 els.shortcutSelect.addEventListener("change", () => saveDesktopPreferences({ quickPromptShortcut: els.shortcutSelect.value || null }));
 els.trayEnabled.addEventListener("change", () => saveDesktopPreferences({ trayEnabled: els.trayEnabled.checked }));
 els.closeToTray.addEventListener("change", () => saveDesktopPreferences({ closeToTray: els.closeToTray.checked }));
@@ -1320,7 +1518,7 @@ els.more.addEventListener("click", openDiagnostics); els.closeDiagnostics.addEve
 els.copyDiagnostics.addEventListener("click", async () => { try { await api.copyDiagnostics(); toast("Diagnostics copied"); } catch (error) { showError(error); } });
 els.exportDiagnostics.addEventListener("click", async () => { try { const filePath = await api.exportDiagnostics(); if (filePath) toast(`Diagnostics exported to ${filePath}`); } catch (error) { showError(error); } });
 els.showLog.addEventListener("click", () => api.showLogFile().catch(showError));
-for (const overlay of [els.authOverlay, els.screenshotOverlay, els.cameraOverlay, els.diagnosticsOverlay]) {
+for (const overlay of [els.authOverlay, els.extensionsOverlay, els.screenshotOverlay, els.cameraOverlay, els.diagnosticsOverlay]) {
   overlay.addEventListener("click", closeOnBackdropClick);
 }
 document.addEventListener("click", (event) => {

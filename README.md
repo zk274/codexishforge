@@ -27,6 +27,8 @@ An unofficial Linux desktop client powered by the installed OpenAI Codex CLI. It
 - Use the complete interface by keyboard, with visible focus, contained dialog focus, reduced motion, text scaling, high contrast, and system accessibility preference support
 - Restore the last active thread after restarting
 - Preflight the installed CLI's version-specific app-server schema, blocking incompatible builds and gating unavailable optional features
+- Inspect and manage installed skills, plugins, and MCP servers from a capability-gated Extension Center
+- Check extension health and open the user, project, system, or managed configuration layer that owns a setting
 - Collect rotating, credential-redacted diagnostics with copy/export controls
 - Detect unclean shutdowns and offer renderer crash recovery
 - Choose an available model and reasoning effort
@@ -59,6 +61,14 @@ Open account settings with **Ctrl+,** to choose 100–150% text size, reduced mo
 
 Use **Ctrl+N** for a new thread, **Ctrl+K** or **/** to search threads, **Ctrl+J** for the terminal, **Alt+Left** to return home, and **F6** to cycle through the primary work areas. Arrow keys navigate thread lists and tabs. In region capture, arrow keys move the selection and **Shift+Arrow** resizes it. Dialogs contain keyboard focus and close with **Escape**.
 
+## Extension Center
+
+Open the application menu beside **Codex Linux**, then select **Extensions**. The Extension Center lists skills for the current project, installed plugins, active MCP servers, health issues, and effective Codex configuration layers.
+
+Skill enablement uses the supported Codex skill API. Plugin and MCP toggles write only the owning user or trusted-project configuration layer through Codex's atomic configuration API; system and managed layers remain read-only. Plugin inventory is labeled **Preview** and automatically disappears on CLI versions that do not expose it.
+
+Raw `config.toml` values, MCP commands, URLs, environment variables, headers, and credentials never cross the preload bridge. The UI receives only bounded names, descriptions, counts, health states, and configuration file paths.
+
 ## Deep links
 
 Installed packages register the `codex-linux` URL scheme. Supported links are intentionally limited:
@@ -87,7 +97,7 @@ Packages are written to `dist/`. The build produces an AppImage, a `.deb` instal
 Classic confinement is intentional: Codex must open user-selected repositories and launch the host CLI. Install a local Snap build with:
 
 ```bash
-sudo snap install --classic --dangerous "dist/Codex Linux Community-0.4.0-amd64.snap"
+sudo snap install --classic --dangerous "dist/Codex Linux Community-0.5.0-amd64.snap"
 ```
 
 Publishing a classic snap in the Snap Store requires a confinement review.
@@ -108,7 +118,7 @@ Open the **•••** menu for diagnostics. Reports include runtime and compati
 
 ## Current scope
 
-This is an early desktop client built on the CLI's experimental app-server protocol. Core local coding and Git workflows are present, but cloud task management, voice/realtime mode, plugin management screens, and Canvas-style editing are not yet exposed. Unknown server requests are rejected safely instead of being guessed. See [ROADMAP.md](ROADMAP.md) for the next desktop-focused milestones.
+This is an early desktop client built on the CLI's experimental app-server protocol. Core local coding, Git, and extension-control workflows are present, but cloud task management, voice/realtime mode, public plugin browsing and installation, and Canvas-style editing are not yet exposed. Unknown server requests are rejected safely instead of being guessed. See [ROADMAP.md](ROADMAP.md) for the next desktop-focused milestones.
 
 ## Safety and privacy
 

@@ -16,6 +16,9 @@
           <button id="settingsButton" type="button" role="menuitem">
             <span aria-hidden="true">⚙</span><span><strong>Account &amp; settings</strong><small>Desktop, accessibility, and account</small></span>
           </button>
+          <button id="extensionsButton" type="button" role="menuitem">
+            <span aria-hidden="true">◇</span><span><strong>Extensions</strong><small>Skills, plugins, MCP, and configuration</small></span>
+          </button>
         </div>
       </div>
       <span>Codex Linux</span>
@@ -209,6 +212,56 @@
           <button id="signInButton" class="primary-action" hidden>Sign in with ChatGPT</button>
         </div>
         <button id="authDocsButton" class="text-link">Codex installation and login help ↗</button>
+      </section>
+    </div>
+
+    <div id="extensionsOverlay" class="overlay" hidden>
+      <section class="extensions-dialog" role="dialog" aria-modal="true" aria-labelledby="extensionsTitle">
+        <button id="closeExtensionsButton" class="dialog-close" title="Close" aria-label="Close Extension Center">×</button>
+        <p class="eyebrow">CODEX 0.5</p>
+        <h2 id="extensionsTitle">Extension Center</h2>
+        <p class="extensions-copy">Inspect the extensions loaded by your Codex CLI. Configuration values and credentials stay in Codex and are never displayed here.</p>
+        <div class="extensions-toolbar">
+          <div id="extensionsSummary" class="diagnostics-status" aria-live="polite"></div>
+          <button id="refreshExtensionsButton" class="secondary-button">Refresh</button>
+        </div>
+        <div id="extensionIssues" class="extension-issues" aria-live="polite" hidden></div>
+
+        <section class="extension-section" aria-labelledby="skillsTitle">
+          <div class="extension-section-heading">
+            <div><p class="eyebrow">SKILLS</p><h3 id="skillsTitle">Reusable workflows</h3></div>
+            <span id="skillsCount" class="extension-count">—</span>
+          </div>
+          <p class="extension-section-copy">Enable or disable installed skills through Codex’s supported configuration API.</p>
+          <div id="skillsList" class="extension-list" role="list"><p class="empty-list">Loading skills…</p></div>
+        </section>
+
+        <section class="extension-section" aria-labelledby="pluginsTitle">
+          <div class="extension-section-heading">
+            <div><p class="eyebrow">PLUGINS <span class="preview-pill">PREVIEW</span></p><h3 id="pluginsTitle">Installed bundles</h3></div>
+            <span id="pluginsCount" class="extension-count">—</span>
+          </div>
+          <p class="extension-section-copy">Installed-plugin inventory is capability-gated while the Codex plugin API is still evolving.</p>
+          <div id="pluginsList" class="extension-list" role="list"><p class="empty-list">Loading plugins…</p></div>
+        </section>
+
+        <section class="extension-section" aria-labelledby="mcpTitle">
+          <div class="extension-section-heading">
+            <div><p class="eyebrow">MCP SERVERS</p><h3 id="mcpTitle">Tools and connections</h3></div>
+            <span id="mcpCount" class="extension-count">—</span>
+          </div>
+          <p class="extension-section-copy">Health reflects the active Codex runtime. Only explicitly configured, user-editable servers can be toggled here.</p>
+          <div id="mcpList" class="extension-list" role="list"><p class="empty-list">Loading MCP servers…</p></div>
+        </section>
+
+        <section class="extension-section" aria-labelledby="configurationTitle">
+          <div class="extension-section-heading">
+            <div><p class="eyebrow">CONFIGURATION</p><h3 id="configurationTitle">Active layers</h3></div>
+            <span id="configCount" class="extension-count">—</span>
+          </div>
+          <p class="extension-section-copy">Open the file that owns a setting. Managed and system layers remain read-only.</p>
+          <div id="configList" class="extension-list" role="list"><p class="empty-list">Loading configuration…</p></div>
+        </section>
       </section>
     </div>
 

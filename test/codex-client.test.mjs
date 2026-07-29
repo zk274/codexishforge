@@ -27,12 +27,12 @@ function fakeProcess() {
 
 test("connect performs the app-server initialization handshake", async () => {
   const child = fakeProcess();
-  const client = new CodexClient({ spawnProcess: () => child, requestTimeoutMs: 500 });
+  const client = new CodexClient({ clientVersion: "0.5.0", spawnProcess: () => child, requestTimeoutMs: 500 });
   const connected = client.connect();
   const initialize = await child.readMessage();
   assert.equal(initialize.method, "initialize");
   assert.equal(initialize.params.clientInfo.name, "codex_linux_community");
-  assert.equal(initialize.params.clientInfo.version, "0.3.0");
+  assert.equal(initialize.params.clientInfo.version, "0.5.0");
   child.stdout.write(`${JSON.stringify({ id: initialize.id, result: { platformOs: "linux" } })}\n`);
   await connected;
   assert.equal(client.ready, true);

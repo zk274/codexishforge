@@ -12,6 +12,13 @@ import { chatGptLoginStartParams, logoutAccount, validateChatGptLoginResponse } 
 import { CodexClient } from "./codex-client.mjs";
 import { DEEP_LINK_SCHEME, extractDeepLinkArgument, parseDeepLink } from "./deep-links.mjs";
 import { mergeDesktopPreferences, normalizeDesktopPreferences, shortcutCandidates, shouldHideOnClose } from "./desktop-preferences.mjs";
+import {
+  buildExtensionInventory,
+  configFiles,
+  configWriteTarget,
+  isSafeExtensionId,
+  resolveUserConfigPath,
+} from "./extension-inventory.mjs";
 import { resolveCodexCommand, validateCodexCommand } from "./codex-locator.mjs";
 import { GitService } from "./git-service.mjs";
 import { inspectCodexProtocol, unknownProtocolCompatibility } from "./protocol-compatibility.mjs";
@@ -335,7 +342,7 @@ function getClient() {
   discovery = resolveCodexCommand({ configuredPath: readSettings().codexCliPath || null });
   if (!discovery.command) { log("error", "codex.cli_not_found", { searched: discovery.searched }); return null; }
   log("info", "codex.cli_discovered", { path: discovery.command });
-  client = new CodexClient({ command: discovery.command });
+  client = new CodexClient({ command: discovery.command, clientVersion: app.getVersion() });
   bindClientEvents(client);
   return client;
 }
@@ -414,6 +421,133 @@ async function diagnosticsSnapshot() {
     activeThread: activeThreadContext ? { id: activeThreadContext.id, project: path.basename(activeThreadContext.cwd), title: activeThreadContext.title } : null,
     logFile: logger?.filePath || null,
   };
+}
+
+function extensionCwd() {
+  return activeThreadContext?.cwd || app.getPath("home");
+}
+
+function extensionFeatureAvailable(name) {
+  return compatibility?.features?.[name]?.available !== false;
+}
+
+async function listMcpServers(activeClient) {
+  const data = [];
+  let cursor = null;
+  for (let page = 0; page < 20; page += 1) {
+    const response = await activeClient.request("mcpServerStatus/list", {
+      cursor,
+      detail: "toolsAndAuthOnly",
+      limit: 100,
+    });
+    data.push(...(response.data || []));
+    cursor = response.nextCursor || null;
+    if (!cursor) return { data, nextCursor: null };
+  }
+  throw new Error("MCP server inventory exceeded the supported pagination limit");
+}
+
+async function extensionSnapshot({ forceReload = false } = {}) {
+  const activeClient = await ensureConnected();
+  const cwd = extensionCwd();
+  const tasks = {
+    config: extensionFeatureAvailable("configInventory")
+      ? activeClient.request("config/read", { cwd, includeLayers: true })
+      : Promise.resolve(null),
+    skills: extensionFeatureAvailable("skillInventory")
+      ? activeClient.request("skills/list", { cwds: [cwd], forceReload: forceReload === true })
+      : Promise.resolve(null),
+    plugins: extensionFeatureAvailable("pluginInventory")
+      ? activeClient.request("plugin/installed", { cwds: [cwd] })
+      : Promise.resolve(null),
+    mcp: extensionFeatureAvailable("mcpInventory")
+      ? listMcpServers(activeClient)
+      : Promise.resolve(null),
+  };
+  const names = Object.keys(tasks);
+  const results = await Promise.allSettled(Object.values(tasks));
+  const settled = Object.fromEntries(names.map((name, index) => [name, results[index]]));
+  const value = (name) => settled[name].status === "fulfilled" ? settled[name].value : null;
+  const error = (name) => settled[name].status === "rejected" ? settled[name].reason : null;
+  const snapshot = buildExtensionInventory({
+    cwd,
+    compatibility,
+    configResponse: value("config"),
+    configError: error("config"),
+    skillsResponse: value("skills"),
+    skillsError: error("skills"),
+    pluginsResponse: value("plugins"),
+    pluginsError: error("plugins"),
+    mcpResponse: value("mcp"),
+    mcpError: error("mcp"),
+    fallbackUserConfig: resolveUserConfigPath(),
+  });
+  log(snapshot.summary.issues ? "warn" : "info", "extensions.inventory", snapshot.summary);
+  return snapshot;
+}
+
+async function setExtensionEnabled({ kind, id, enabled } = {}) {
+  if (!["skill", "plugin", "mcp"].includes(kind)) throw new TypeError("Unsupported extension type");
+  if (typeof enabled !== "boolean") throw new TypeError("Extension state must be enabled or disabled");
+  const activeClient = await ensureConnected();
+  const cwd = extensionCwd();
+
+  if (kind === "skill") {
+    if (!extensionFeatureAvailable("skillManagement")) throw new Error("This Codex CLI cannot change skill settings");
+    if (typeof id !== "string" || !path.isAbsolute(id)) throw new TypeError("Skill path is invalid");
+    const response = await activeClient.request("skills/list", { cwds: [cwd], forceReload: true });
+    const skill = (response.data || []).flatMap((entry) => entry.skills || []).find((entry) => entry.path === id);
+    if (!skill) throw new Error("That skill is no longer installed");
+    await activeClient.request("skills/config/write", { path: skill.path, enabled });
+  } else {
+    if (!extensionFeatureAvailable("configManagement")) throw new Error("This Codex CLI cannot safely update configuration");
+    if (!isSafeExtensionId(id)) throw new TypeError(`${kind === "plugin" ? "Plugin" : "MCP server"} identifier is not safe to edit`);
+    const config = await activeClient.request("config/read", { cwd, includeLayers: true });
+    let keyPath;
+    if (kind === "plugin") {
+      if (!extensionFeatureAvailable("pluginInventory")) throw new Error("Installed plugin inventory is unavailable");
+      const plugins = await activeClient.request("plugin/installed", { cwds: [cwd] });
+      const plugin = (plugins.marketplaces || []).flatMap((entry) => entry.plugins || []).find((entry) => entry.id === id && entry.installed !== false);
+      if (!plugin) throw new Error("That plugin is no longer installed");
+      if (plugin.availability === "DISABLED_BY_ADMIN") throw new Error("That plugin is controlled by your workspace administrator");
+      keyPath = `plugins.${id}.enabled`;
+    } else {
+      const configured = config.config?.mcp_servers;
+      if (!configured || typeof configured !== "object" || !Object.hasOwn(configured, id)) {
+        throw new Error("Only explicitly configured MCP servers can be changed here");
+      }
+      keyPath = `mcp_servers.${id}.enabled`;
+    }
+    const target = configWriteTarget(config, keyPath, { fallbackUserConfig: resolveUserConfigPath() });
+    if (!target.editable || !target.path) throw new Error("This extension is controlled by a read-only Codex configuration layer");
+    await activeClient.request("config/batchWrite", {
+      edits: [{ keyPath, value: enabled, mergeStrategy: "upsert" }],
+      expectedVersion: target.version,
+      filePath: target.path,
+      reloadUserConfig: true,
+    });
+    if (kind === "mcp" && extensionFeatureAvailable("mcpManagement")) {
+      await activeClient.request("config/mcpServer/reload", {});
+    }
+  }
+
+  log("info", "extensions.enabled_changed", { kind, id, enabled });
+  return extensionSnapshot({ forceReload: true });
+}
+
+async function showCodexConfig(filePath) {
+  if (typeof filePath !== "string" || !path.isAbsolute(filePath)) throw new TypeError("Configuration path is invalid");
+  const activeClient = await ensureConnected();
+  const config = await activeClient.request("config/read", { cwd: extensionCwd(), includeLayers: true });
+  const allowed = configFiles(config, { fallbackUserConfig: resolveUserConfigPath() });
+  const target = allowed.find((entry) => entry.path === path.normalize(filePath));
+  if (!target) throw new Error("That path is not an active Codex configuration file");
+  if (target.exists) shell.showItemInFolder(target.path);
+  else {
+    const result = await shell.openPath(path.dirname(target.path));
+    if (result) throw new Error(result);
+  }
+  return target.path;
 }
 
 function registerIpc() {
@@ -593,6 +727,9 @@ function registerIpc() {
   });
 
   ipcMain.handle("desktop:getPreferences", () => desktopState());
+  ipcMain.handle("extensions:get", (_event, options = {}) => extensionSnapshot({ forceReload: options?.forceReload === true }));
+  ipcMain.handle("extensions:setEnabled", (_event, payload) => setExtensionEnabled(payload));
+  ipcMain.handle("extensions:showConfig", (_event, filePath) => showCodexConfig(filePath));
   ipcMain.handle("desktop:deepLinksReady", (event) => {
     if (event.sender !== mainWindow?.webContents) throw new Error("Deep-link readiness is limited to the main window");
     deepLinkRendererReady = true;
@@ -772,7 +909,7 @@ function createWindow({ show = true } = {}) {
     mainWindow = null;
     if (!isQuitting) app.quit();
   });
-  const captureArgument = process.argv.find((argument) => argument.startsWith("--capture-ui=") || argument.startsWith("--capture-long-thread-ui=") || argument.startsWith("--capture-titlebar-menu-ui=") || argument.startsWith("--capture-diagnostics-ui=") || argument.startsWith("--capture-settings-ui=") || argument.startsWith("--capture-accessibility-ui=") || argument.startsWith("--capture-updates-ui=") || argument.startsWith("--capture-region-ui=") || argument.startsWith("--capture-camera-ui=") || argument.startsWith("--capture-live-camera-ui=") || argument.startsWith("--capture-camera-attachment-ui="));
+  const captureArgument = process.argv.find((argument) => argument.startsWith("--capture-ui=") || argument.startsWith("--capture-long-thread-ui=") || argument.startsWith("--capture-titlebar-menu-ui=") || argument.startsWith("--capture-diagnostics-ui=") || argument.startsWith("--capture-settings-ui=") || argument.startsWith("--capture-extensions-ui=") || argument.startsWith("--capture-accessibility-ui=") || argument.startsWith("--capture-updates-ui=") || argument.startsWith("--capture-region-ui=") || argument.startsWith("--capture-camera-ui=") || argument.startsWith("--capture-live-camera-ui=") || argument.startsWith("--capture-camera-attachment-ui="));
   if (captureArgument) mainWindow.webContents.once("did-finish-load", () => setTimeout(async () => {
     if (captureArgument.startsWith("--capture-long-thread-ui=")) {
       await mainWindow.webContents.executeJavaScript(`(() => {
@@ -832,10 +969,11 @@ function createWindow({ show = true } = {}) {
         const state = {
           menuOpen: !menu.hidden && button.getAttribute("aria-expanded") === "true",
           settingsInMenu: menu.contains(document.querySelector("#settingsButton")),
+          extensionsInMenu: menu.contains(document.querySelector("#extensionsButton")),
           homeCentered: Math.abs(homeBounds.left + homeBounds.width / 2 - window.innerWidth / 2) < 1,
           menuAnchored: Math.abs(menuBounds.left - buttonBounds.left) < 1 && menuBounds.top >= buttonBounds.bottom,
         };
-        if (!state.menuOpen || !state.settingsInMenu || !state.homeCentered || !state.menuAnchored) {
+        if (!state.menuOpen || !state.settingsInMenu || !state.extensionsInMenu || !state.homeCentered || !state.menuAnchored) {
           throw new Error("Titlebar menu validation failed: " + JSON.stringify(state));
         }
         document.body.click();
@@ -850,6 +988,9 @@ function createWindow({ show = true } = {}) {
     } else if (captureArgument.startsWith("--capture-settings-ui=")) {
       await mainWindow.webContents.executeJavaScript("document.querySelector('#accountButton').click()");
       await new Promise((resolve) => setTimeout(resolve, 500));
+    } else if (captureArgument.startsWith("--capture-extensions-ui=")) {
+      await mainWindow.webContents.executeJavaScript("document.querySelector('#extensionsButton').click()");
+      await new Promise((resolve) => setTimeout(resolve, 1800));
     } else if (captureArgument.startsWith("--capture-accessibility-ui=")) {
       await mainWindow.webContents.executeJavaScript(`(async () => {
         document.querySelector("#accountButton").click();
