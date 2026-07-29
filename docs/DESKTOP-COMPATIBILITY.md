@@ -36,6 +36,18 @@ On 2026-07-29, version 0.9 passed four packaged cases on an Ubuntu GNOME Wayland
 
 All four cases used Electron 43.2.0 and produced a loaded renderer, named modal state, non-empty pixel capture, available tray, supported notifications, and a registered global shortcut. This is development evidence for GNOME Wayland and both Electron display backends; it is not a human GNOME/X11, KDE, camera, portal, installed-package, or screen-reader pass.
 
+### Installed Debian evidence
+
+On 2026-07-29, a maintainer completed the Debian install lifecycle for version 0.9.0 (`amd64`) on Ubuntu 26.04 LTS with GNOME Shell 50.1 in a native Wayland session:
+
+- A fresh `dpkg` install registered the package, command alternative, application launcher, icon, and `codex-linux:` URL handler.
+- Launching from GNOME opened the installed application normally.
+- Opening `codex-linux://open` focused the existing window without creating a second application instance.
+- Removing the package removed its executable, command alternative, launcher, icon, and URL handler while preserving per-user application data.
+- Reinstalling the same package opened normally with the previous user state intact.
+
+This records the installed-package, launcher, deep-link, removal, and reinstall portion of the GNOME/Wayland Debian check. It does not replace the remaining manual camera, portal, notification, keyboard, visual-mode, or spoken Orca checks required for that row.
+
 ## Release-candidate desktop matrix
 
 | Desktop/session | AppImage | Debian | Classic Snap | Keyboard and screen reader | Status |
