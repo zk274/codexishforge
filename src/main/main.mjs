@@ -13,6 +13,7 @@ import { CodexClient } from "./codex-client.mjs";
 import { secureThreadExecutionParams, secureTurnExecutionParams } from "./codex-execution-policy.mjs";
 import { CreationStore, searchWorkspace, validateRealtimeAudioChunk } from "./creation-service.mjs";
 import { DEEP_LINK_SCHEME, extractDeepLinkArgument, parseDeepLink } from "./deep-links.mjs";
+import { resolveLinuxDesktopName } from "./desktop-identity.mjs";
 import { mergeDesktopPreferences, normalizeDesktopPreferences, shortcutCandidates, shouldHideOnClose } from "./desktop-preferences.mjs";
 import {
   buildExtensionInventory,
@@ -53,6 +54,8 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { autoUpdater } = electronUpdater;
 const PROJECT_SPONSOR_URL = "https://github.com/sponsors/zk274";
+const linuxDesktopName = resolveLinuxDesktopName();
+if (linuxDesktopName) app.setDesktopName(linuxDesktopName);
 const initialDeepLinkArgument = extractDeepLinkArgument(process.argv);
 const singleInstanceLockAcquired = app.requestSingleInstanceLock({ deepLink: initialDeepLinkArgument });
 if (!singleInstanceLockAcquired) app.quit();
