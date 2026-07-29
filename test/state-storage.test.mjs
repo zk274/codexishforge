@@ -27,7 +27,9 @@ test("state storage migrates legacy data and preserves a private backup", (t) =>
   assert.equal(loaded.meta.status, "migrated");
   assert.deepEqual(loaded.value, { version: 2, items: ["legacy"] });
   assert.equal(JSON.parse(fs.readFileSync(`${filePath}.backup`, "utf8")).items[0], "legacy");
+  assert.equal(JSON.parse(fs.readFileSync(`${filePath}.migration-backup`, "utf8")).items[0], "legacy");
   assert.equal(fs.statSync(filePath).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(`${filePath}.migration-backup`).mode & 0o777, 0o600);
 });
 
 test("state storage recovers corrupt primary data from its last valid backup", (t) => {

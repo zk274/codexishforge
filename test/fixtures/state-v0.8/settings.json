@@ -1,0 +1,17 @@
+{
+  "lastThreadId": "thread-v08-preserved",
+  "codexCliPath": "/usr/bin/codex",
+  "desktop": {
+    "launchAtLogin": true,
+    "closeToTray": true,
+    "notifications": {
+      "turn": true,
+      "approval": false,
+      "terminal": true
+    }
+  },
+  "updates": {
+    "channel": "beta",
+    "autoCheck": false
+  }
+}

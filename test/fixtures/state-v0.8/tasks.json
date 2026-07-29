@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "task-v08-preserved",
+      "title": "Preserve the 0.8 task",
+      "prompt": "Verify that this completed task survives the upgrade.",
+      "repository": "/workspace/example",
+      "isolation": "local",
+      "baseRef": "main",
+      "worktreePath": null,
+      "cwd": "/workspace/example",
+      "model": "gpt-5",
+      "effort": "high",
+      "state": "completed",
+      "threadId": "thread-v08-preserved",
+      "turnId": "turn-v08-preserved",
+      "createdAt": 1750000000000,
+      "updatedAt": 1750000005000,
+      "startedAt": 1750000001000,
+      "completedAt": 1750000005000,
+      "error": null,
+      "summary": "The 0.8 task completed successfully.",
+      "attempts": 1,
+      "pendingRequests": [],
+      "agents": [],
+      "events": [
+        {
+          "id": "event-v08-preserved",
+          "kind": "completed",
+          "message": "Task completed.",
+          "at": 1750000005000,
+          "agentThreadId": null
+        }
+      ]
+    }
+  ],
+  "inbox": [
+    {
+      "id": "inbox-v08-preserved",
+      "kind": "completed",
+      "taskId": "task-v08-preserved",
+      "requestId": null,
+      "title": "Preserved task completed",
+      "detail": "This inbox item came from version 0.8.",
+      "createdAt": 1750000005000,
+      "resolved": false
+    }
+  ]
+}

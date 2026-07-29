@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "templates": [
+    {
+      "id": "template-v08-preserved",
+      "name": "0.8 upgrade template",
+      "description": "A custom template saved by version 0.8.",
+      "prompt": "Keep this reusable prompt through the upgrade.",
+      "isolation": "worktree",
+      "baseRef": "main",
+      "model": "gpt-5",
+      "effort": "medium",
+      "createdAt": 1750000010000,
+      "updatedAt": 1750000010000
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "artifact-v08-preserved",
+      "title": "0.8 upgrade notes",
+      "kind": "notes",
+      "body": "This artifact must survive AppImage and Debian upgrades.",
+      "repository": "/workspace/example",
+      "createdAt": 1750000020000,
+      "updatedAt": 1750000020000
+    }
+  ]
+}

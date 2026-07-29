@@ -105,6 +105,10 @@ export function loadVersionedState(filePath, {
   try {
     const value = normalize(migrate(raw, currentVersion, migrations));
     const migrated = fromVersion !== currentVersion;
+    const migrationBackupPath = `${filePath}.migration-backup`;
+    if (migrated && !fsApi.existsSync(migrationBackupPath)) {
+      atomicWriteJson(migrationBackupPath, raw, { fsApi, rotateBackup: false });
+    }
     if (source === "backup" || migrated) atomicWriteJson(filePath, value, { fsApi, rotateBackup: source !== "backup" });
     return {
       value,

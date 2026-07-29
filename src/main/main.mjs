@@ -29,8 +29,8 @@ import { normalizeReportingPreferences, ReleaseReporter, releaseReport } from ".
 import { repositoryPolicySnapshot } from "./repository-policy.mjs";
 import { discoverReviewChecks, runReviewCheck } from "./review-service.mjs";
 import { securitySnapshot, trustedRendererUrl, validateAttachmentPath, validateExternalUrl } from "./security-policy.mjs";
+import { loadSettingsState, saveSettingsState } from "./settings-state.mjs";
 import { redactedDiagnosticsMarkdown, redactedTaskMarkdown } from "./share-summary.mjs";
-import { loadVersionedState, saveVersionedState } from "./state-storage.mjs";
 import { StructuredLogger } from "./structured-logger.mjs";
 import { TaskStore } from "./task-service.mjs";
 import { createTrayIconPng } from "./tray-icon.mjs";
@@ -106,11 +106,6 @@ const reviewEvidence = new Map();
 const githubContextCache = new Map();
 const realtimeSessions = new Map();
 const performanceLedger = new PerformanceLedger();
-const SETTINGS_STATE_VERSION = 2;
-const SETTINGS_MIGRATIONS = {
-  0: (value) => ({ ...value, version: 1 }),
-  1: (value) => ({ ...value, version: 2, reporting: normalizeReportingPreferences(value.reporting) }),
-};
 const COMPANION_IPC_CHANNELS = new Set(["companion:context", "companion:submit"]);
 
 function taskStoragePath() {
@@ -194,21 +189,15 @@ function settingsPath() {
 }
 
 function readSettings() {
-  const loaded = loadVersionedState(settingsPath(), {
-    currentVersion: SETTINGS_STATE_VERSION,
-    migrations: SETTINGS_MIGRATIONS,
-    defaults: { reporting: normalizeReportingPreferences() },
-  });
+  const loaded = loadSettingsState(settingsPath());
   settingsStorage = loaded.meta;
   return loaded.value;
 }
 
 function writeSettings(settings) {
-  saveVersionedState(settingsPath(), settings, {
-    currentVersion: SETTINGS_STATE_VERSION,
+  settingsStorage = saveSettingsState(settingsPath(), settings, {
     writable: settingsStorage?.writable !== false,
   });
-  settingsStorage = { status: "current", source: "primary", fromVersion: SETTINGS_STATE_VERSION, version: SETTINGS_STATE_VERSION, writable: true, error: null };
 }
 
 function desktopPreferences() {
@@ -1957,6 +1946,50 @@ function createWindow({ show = true } = {}) {
       app.quit();
     } catch (error) {
       log("error", "automation.packaged_launch_failed", { message: error.message });
+      app.exit(1);
+    }
+  }, 500));
+  const upgradeRecoveryTestArgument = process.argv.find((argument) => argument.startsWith("--test-upgrade-recovery="));
+  if (upgradeRecoveryTestArgument) mainWindow.webContents.once("did-finish-load", () => setTimeout(() => {
+    const outputPath = path.resolve(upgradeRecoveryTestArgument.slice(upgradeRecoveryTestArgument.indexOf("=") + 1));
+    const temporaryRoot = path.resolve(os.tmpdir());
+    if (outputPath === temporaryRoot || !outputPath.startsWith(`${temporaryRoot}${path.sep}`)) {
+      log("error", "automation.upgrade_recovery_path_rejected", { path: outputPath });
+      app.exit(1);
+      return;
+    }
+    try {
+      const settings = readSettings();
+      const tasks = taskSnapshot();
+      const creation = creationSnapshot();
+      fs.writeFileSync(outputPath, `${JSON.stringify({
+        packaged: app.isPackaged,
+        version: app.getVersion(),
+        packageType: updateSnapshot().packageType,
+        userData: app.getPath("userData"),
+        settings: {
+          storage: settingsStorage,
+          version: settings.version,
+          lastThreadId: settings.lastThreadId || null,
+          codexCliPath: settings.codexCliPath || null,
+          desktop: settings.desktop || null,
+          updates: settings.updates || null,
+          reportingEnabled: settings.reporting?.enabled === true,
+        },
+        tasks: {
+          storage: taskStore?.storage || null,
+          ids: tasks.tasks.map((task) => task.id),
+          inboxIds: tasks.inbox.map((item) => item.id),
+        },
+        creation: {
+          storage: creationStore?.storage || null,
+          templateIds: creation.templates.filter((template) => !template.builtin).map((template) => template.id),
+          artifactIds: creation.artifacts.map((artifact) => artifact.id),
+        },
+      }, null, 2)}\n`, { mode: 0o600 });
+      app.quit();
+    } catch (error) {
+      log("error", "automation.upgrade_recovery_failed", { message: error.message });
       app.exit(1);
     }
   }, 500));

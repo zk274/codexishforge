@@ -17,6 +17,8 @@ The 0.9 baseline was verified on 2026-07-29 with `codex-cli 0.146.0-alpha.3.1`. 
 
 Settings, tasks, and Creation Studio data carry explicit schema versions and migrate one version at a time. Writes use a same-directory temporary file, restrictive `0600` permissions, file synchronization, atomic rename, and directory synchronization where the platform supports them.
 
-Before replacing a valid primary file, the previous version becomes `.backup`. A corrupt primary is restored from a valid backup. A corrupt file without a valid backup, a failed migration, or a state version newer than this app is exposed as read-only defaults; the source is preserved for recovery instead of being overwritten.
+Before replacing a valid primary file, the previous version becomes `.backup`. The first successful schema migration also preserves its original source as a private `.migration-backup`, which ordinary saves do not rotate. A corrupt primary is restored from a valid backup. A corrupt file without a valid backup, a failed migration, or a state version newer than this app is exposed as read-only defaults; the source is preserved for recovery instead of being overwritten.
 
 Storage source, version, recovery, writability, and bounded failure state appear in diagnostics.
+
+The release gate copies exact 0.8-format fixtures into an isolated Linux profile, launches the packaged AppImage to migrate them, and then reopens the migrated profile with the extracted Debian executable. It verifies preserved settings, update preferences, tasks, inbox items, templates, artifacts, private file modes, and legacy backups. Separate packaged runs prove corrupt-primary recovery and byte-for-byte protection of unsupported future state. A sentinel in the isolated Codex CLI authentication directory must remain unchanged throughout; package upgrades do not own or rewrite CLI credentials.
