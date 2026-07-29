@@ -65,8 +65,9 @@ On 2026-07-29, a maintainer installed the locally built version 0.9.0 (`amd64`) 
 - Launching from the GNOME application menu opened the Snap normally.
 - The registered `codex-linux:` handler routed repeated links to one main application process. GNOME displayed its “is ready” activation notification instead of allowing the background application to steal focus.
 - Closing the main window retained the tray process, and `Ctrl+Shift+Space` opened the quick-prompt window.
+- File attachment, full-screen capture, region capture, camera preview, and still-image attachment completed successfully.
 
-This completes the classic Snap install, launch, state-continuity, application-menu, single-instance deep-link, tray, and shortcut checks. The remaining attachment, portal, camera, notification, accessibility, and removal checks remain part of the manual GNOME/Wayland release-candidate row below.
+This completes the classic Snap install, launch, state-continuity, application-menu, single-instance deep-link, tray, shortcut, attachment, portal, and camera checks. The remaining notification, accessibility, and removal checks remain part of the manual GNOME/Wayland release-candidate row below.
 
 ## Release-candidate desktop matrix
 
