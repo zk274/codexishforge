@@ -20,9 +20,13 @@ export function classicSnapLauncher(
 ) {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(executableName)) throw new TypeError("Snap executable name is invalid");
   if (!/^[a-z0-9][a-z0-9.-]*\.desktop$/.test(desktopName)) throw new TypeError("Linux desktop name is invalid");
+  // libnotify selects the portal whenever SNAP is present, including under
+  // classic confinement. GNOME cannot resolve that classic-Snap sender, so
+  // use the host notification daemon where the desktop-entry hint is valid.
   return [
     "#!/bin/sh",
     `export CHROME_DESKTOP="\${SNAP_INSTANCE_NAME:-${executableName}}_${desktopName}"`,
+    "export NOTIFY_IGNORE_PORTAL=1",
     `exec "$SNAP/${executableName}" --no-sandbox "$@"`,
     "",
   ].join("\n");

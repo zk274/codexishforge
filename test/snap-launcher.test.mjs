@@ -9,6 +9,7 @@ test("classic Snap launcher directly starts the packaged app with bounded argume
     [
       "#!/bin/sh",
       "export CHROME_DESKTOP=\"${SNAP_INSTANCE_NAME:-codex-linux-community}_community.codexlinux.desktop\"",
+      "export NOTIFY_IGNORE_PORTAL=1",
       "exec \"$SNAP/codex-linux-community\" --no-sandbox \"$@\"",
       "",
     ].join("\n"),
