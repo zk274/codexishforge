@@ -76,9 +76,13 @@ Project links show the resolved local directory and require confirmation. Links 
 ```bash
 npm run check
 npm run dist
+npm run verify:artifacts
+npm run smoke:package
 ```
 
 Packages are written to `dist/`. The build produces an AppImage, a `.deb` installer, and a classic-confinement `.snap`.
+
+`npm run release:verify` runs the complete sequence. Artifact verification checks package versions, architectures, Snap confinement, update metadata, sizes, and SHA-512 hashes. The packaged smoke test uses `xvfb-run` or an existing X display; it launches the AppImage with a clean home directory and a minimal desktop `PATH`, verifies the renderer, and exits automatically. GitHub Actions runs ordinary checks for every pull request and the full release gates for version tags or a manual dispatch.
 
 Classic confinement is intentional: Codex must open user-selected repositories and launch the host CLI. Install a local Snap build with:
 

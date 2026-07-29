@@ -9,6 +9,7 @@ import {
   terminalForHandle,
   unreadTerminalCount,
 } from "./terminal-state.mjs";
+import { responseForRequest } from "./approval-state.mjs";
 import { mergeTurnSnapshot } from "./conversation-state.mjs";
 import { selectionFromPoints, selectionToImage } from "../shared/capture-region.mjs";
 
@@ -1070,19 +1071,23 @@ function showNextRequest() {
 async function answerCurrent(action) {
   const request = state.currentRequest; if (!request) return;
   try {
-    if (request.method === "item/tool/requestUserInput") { if (action === "deny") await api.rejectRequest({ id: request.id, message: "User cancelled the input request" }); else { const answers = {}; for (const control of els.requestQuestions.querySelectorAll("[data-question-id]")) answers[control.dataset.questionId] = { answers: [control.value] }; await api.answerRequest({ id: request.id, result: { answers } }); } }
-    else if (["item/commandExecution/requestApproval", "item/fileChange/requestApproval"].includes(request.method)) { const decision = action === "allow" ? "accept" : action === "session" ? "acceptForSession" : "decline"; await api.answerRequest({ id: request.id, result: { decision } }); }
-    else if (["execCommandApproval", "applyPatchApproval"].includes(request.method)) { const decision = action === "allow" ? "approved" : action === "session" ? "approved_for_session" : "denied"; await api.answerRequest({ id: request.id, result: { decision } }); }
-    else if (request.method === "item/permissions/requestApproval") {
-      if (action === "deny") await api.rejectRequest({ id: request.id, message: "User denied the additional permissions" });
-      else { const permissions = {}; if (request.params.permissions.network) permissions.network = request.params.permissions.network; if (request.params.permissions.fileSystem) permissions.fileSystem = request.params.permissions.fileSystem; await api.answerRequest({ id: request.id, result: { permissions, scope: action === "session" ? "session" : "turn" } }); }
+    const values = {};
+    if (request.method === "item/tool/requestUserInput" && action !== "deny") {
+      values.answers = {};
+      for (const control of els.requestQuestions.querySelectorAll("[data-question-id]")) values.answers[control.dataset.questionId] = { answers: [control.value] };
     }
-    else if (request.method === "mcpServer/elicitation/request") {
-      if (action === "deny") await api.answerRequest({ id: request.id, result: { action: "decline", content: null, _meta: null } });
-      else if (request.params.mode === "url") { await api.openExternal(request.params.url); await api.answerRequest({ id: request.id, result: { action: "accept", content: null, _meta: null } }); }
-      else { const content = {}; for (const control of els.requestQuestions.querySelectorAll("[data-elicitation-key]")) { let value = control.type === "checkbox" ? control.checked : control.value; if (control.dataset.valueType === "number" || control.dataset.valueType === "integer") value = Number(value); content[control.dataset.elicitationKey] = value; } await api.answerRequest({ id: request.id, result: { action: "accept", content, _meta: null } }); }
+    if (request.method === "mcpServer/elicitation/request" && request.params.mode !== "url" && action !== "deny") {
+      values.content = {};
+      for (const control of els.requestQuestions.querySelectorAll("[data-elicitation-key]")) {
+        let value = control.type === "checkbox" ? control.checked : control.value;
+        if (control.dataset.valueType === "number" || control.dataset.valueType === "integer") value = Number(value);
+        values.content[control.dataset.elicitationKey] = value;
+      }
     }
-    else await api.rejectRequest({ id: request.id, message: `Unsupported request: ${request.method}` });
+    const response = responseForRequest(request, action, values);
+    if (response.openUrl) await api.openExternal(response.openUrl);
+    if (response.kind === "answer") await api.answerRequest({ id: request.id, result: response.result });
+    else await api.rejectRequest({ id: request.id, message: response.message });
   } catch (error) { showError(error); }
   state.currentRequest = null; showNextRequest();
 }

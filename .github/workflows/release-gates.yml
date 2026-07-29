@@ -1,0 +1,53 @@
+name: Release gates
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-gates-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  linux-packages:
+    name: Build and verify Linux packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install system test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes squashfs-tools xvfb
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run release verification
+        run: npm run release:verify
+
+      - name: Upload verified packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: codex-linux-community-${{ github.ref_name }}-${{ runner.arch }}
+          if-no-files-found: error
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.snap
+            dist/*-linux.yml
+            dist/*.blockmap
+          retention-days: 14

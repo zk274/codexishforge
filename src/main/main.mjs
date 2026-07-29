@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import electronUpdater from "electron-updater";
 import { XdgAutostart, resolveAutostartExecutable, resolveXdgConfigHome } from "./autostart.mjs";
+import { chatGptLoginStartParams, logoutAccount, validateChatGptLoginResponse } from "./auth-protocol.mjs";
 import { CodexClient } from "./codex-client.mjs";
 import { DEEP_LINK_SCHEME, extractDeepLinkArgument, parseDeepLink } from "./deep-links.mjs";
 import { mergeDesktopPreferences, normalizeDesktopPreferences, shortcutCandidates, shouldHideOnClose } from "./desktop-preferences.mjs";
@@ -502,17 +503,9 @@ function registerIpc() {
 
   ipcMain.handle("codex:loginChatGPT", async () => {
     const activeClient = await ensureConnected();
-    const response = await activeClient.request("account/login/start", {
-      type: "chatgpt",
-      codexStreamlinedLogin: true,
-      useHostedLoginSuccessPage: true,
-      appBrand: "codex",
-    });
-    if (response.type !== "chatgpt") throw new Error("Codex returned an unexpected login method");
-    const url = new URL(response.authUrl);
-    if (url.protocol !== "https:") throw new Error("Codex returned an invalid login URL");
-    await shell.openExternal(url.toString());
-    return { loginId: response.loginId };
+    const login = validateChatGptLoginResponse(await activeClient.request("account/login/start", chatGptLoginStartParams()));
+    await shell.openExternal(login.authUrl);
+    return { loginId: login.loginId };
   });
 
   ipcMain.handle("codex:readAccount", async () => {
@@ -522,8 +515,7 @@ function registerIpc() {
 
   ipcMain.handle("codex:logout", async () => {
     const activeClient = await ensureConnected();
-    await activeClient.request("account/logout");
-    return activeClient.request("account/read", { refreshToken: false });
+    return logoutAccount(activeClient);
   });
 
   ipcMain.handle("desktop:chooseFolder", async () => {
@@ -944,6 +936,37 @@ function createWindow({ show = true } = {}) {
     fs.writeFileSync(captureArgument.slice(captureArgument.indexOf("=") + 1), image.toPNG());
     app.quit();
   }, 2500));
+  const packagedLaunchTestArgument = process.argv.find((argument) => argument.startsWith("--test-packaged-launch="));
+  if (packagedLaunchTestArgument) mainWindow.webContents.once("did-finish-load", () => setTimeout(async () => {
+    const outputPath = path.resolve(packagedLaunchTestArgument.slice(packagedLaunchTestArgument.indexOf("=") + 1));
+    const temporaryRoot = path.resolve(os.tmpdir());
+    if (outputPath === temporaryRoot || !outputPath.startsWith(`${temporaryRoot}${path.sep}`)) {
+      log("error", "automation.packaged_launch_path_rejected", { path: outputPath });
+      app.exit(1);
+      return;
+    }
+    try {
+      const renderer = await mainWindow.webContents.executeJavaScript(`(() => ({
+        readyState: document.readyState,
+        hasComposer: Boolean(document.querySelector("#composer")),
+        hasAuthDialog: Boolean(document.querySelector("#authOverlay")),
+        title: document.title,
+      }))()`);
+      const status = cliStatus();
+      fs.writeFileSync(outputPath, `${JSON.stringify({
+        packaged: app.isPackaged,
+        version: app.getVersion(),
+        platform: process.platform,
+        arch: process.arch,
+        renderer,
+        codexFound: status.found,
+      }, null, 2)}\n`, { mode: 0o600 });
+      app.quit();
+    } catch (error) {
+      log("error", "automation.packaged_launch_failed", { message: error.message });
+      app.exit(1);
+    }
+  }, 500));
   const notificationTestArgument = process.argv.find((argument) => argument.startsWith("--test-notification="));
   if (notificationTestArgument) mainWindow.webContents.once("did-finish-load", () => setTimeout(() => {
     const result = showDesktopNotification("turn", {
