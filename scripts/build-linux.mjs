@@ -1,13 +1,27 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { patchClassicSnapLauncher, waitForStableArtifact } from "./snap-launcher.mjs";
 
 const builder = path.resolve("node_modules", ".bin", "electron-builder");
-const { version } = JSON.parse(fs.readFileSync(path.resolve("package.json"), "utf8"));
+const packageJson = JSON.parse(fs.readFileSync(path.resolve("package.json"), "utf8"));
+const { version } = packageJson;
 const prerelease = version.split("-", 2)[1] || null;
 const channel = prerelease == null ? "latest" : /^beta(?:[.-]|$)/.test(prerelease) ? "beta" : null;
 if (!channel) throw new Error(`Unsupported release channel in package version: ${version}`);
 const releaseType = channel === "beta" ? "prerelease" : "release";
+const architecture = {
+  x64: { appImage: "x86_64", deb: "amd64", snap: "amd64" },
+  arm64: { appImage: "arm64", deb: "arm64", snap: "arm64" },
+}[process.arch];
+if (!architecture) throw new Error(`Unsupported Linux architecture: ${process.arch}`);
+const artifactPath = (architectureName, extension) => path.resolve(
+  "dist",
+  `${packageJson.build.productName}-${version}-${architectureName}.${extension}`,
+);
+const appImagePath = artifactPath(architecture.appImage, "AppImage");
+const debPath = artifactPath(architecture.deb, "deb");
+const snapPath = artifactPath(architecture.snap, "snap");
 
 function build(targets) {
   return new Promise((resolve, reject) => {
@@ -27,5 +41,10 @@ function build(targets) {
   });
 }
 
+for (const filePath of [appImagePath, debPath]) fs.rmSync(filePath, { force: true });
 await build(["AppImage", "deb"]);
+await Promise.all([waitForStableArtifact(appImagePath), waitForStableArtifact(debPath)]);
+fs.rmSync(snapPath, { force: true });
 await build(["snap"]);
+await waitForStableArtifact(snapPath);
+await patchClassicSnapLauncher(snapPath, packageJson.name);

@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { classicSnapLauncher } from "./snap-launcher.mjs";
 
 const projectRoot = path.resolve(import.meta.dirname, "..");
 const distDirectory = path.join(projectRoot, "dist");
@@ -72,6 +73,12 @@ for (const expected of [
   `base: core22`,
   `  - ${architecture.snap}`,
 ]) assert.ok(snapYaml.includes(expected), `Snap metadata is missing ${JSON.stringify(expected)}`);
+const snapLauncher = command("unsquashfs", ["-cat", artifacts.snap, "command.sh"]);
+assert.equal(
+  snapLauncher,
+  classicSnapLauncher("codex-linux-community"),
+  "Classic Snap launcher must not depend on missing desktop helper scripts",
+);
 
 const prerelease = packageJson.version.split("-", 2)[1] || null;
 const channel = prerelease == null ? "latest" : /^beta(?:[.-]|$)/.test(prerelease) ? "beta" : null;
