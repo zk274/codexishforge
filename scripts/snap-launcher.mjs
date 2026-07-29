@@ -14,9 +14,18 @@ function run(command, args, options = {}) {
   });
 }
 
-export function classicSnapLauncher(executableName) {
+export function classicSnapLauncher(
+  executableName,
+  { desktopName = "community.codexlinux.desktop" } = {},
+) {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(executableName)) throw new TypeError("Snap executable name is invalid");
-  return `#!/bin/sh\nexec "$SNAP/${executableName}" --no-sandbox "$@"\n`;
+  if (!/^[a-z0-9][a-z0-9.-]*\.desktop$/.test(desktopName)) throw new TypeError("Linux desktop name is invalid");
+  return [
+    "#!/bin/sh",
+    `export CHROME_DESKTOP="\${SNAP_INSTANCE_NAME:-${executableName}}_${desktopName}"`,
+    `exec "$SNAP/${executableName}" --no-sandbox "$@"`,
+    "",
+  ].join("\n");
 }
 
 export async function waitForStableArtifact(filePath, {
