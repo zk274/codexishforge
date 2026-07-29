@@ -139,13 +139,14 @@ npm run dist
 npm run verify:artifacts
 npm run trust:generate
 npm run trust:verify
+npm run verify:desktop
 npm run smoke:package
 npm run smoke:upgrade
 ```
 
 Packages are written to `dist/`. The build produces an AppImage, a `.deb` installer, and a classic-confinement `.snap`.
 
-`npm run release:verify` runs the complete sequence. Artifact verification checks package versions, architectures, Snap confinement, update metadata, sizes, and SHA-512 hashes. Release-trust verification generates SHA-256 checksums, a versioned manifest, and a CycloneDX SBOM that includes the packaged Electron runtime. Public release builds receive signed GitHub/Sigstore provenance and SBOM attestations; see [Release integrity and provenance](docs/RELEASE-TRUST.md) for verification commands and the private-development boundary.
+`npm run release:verify` runs the complete sequence. Artifact verification checks package versions, architectures, Snap confinement, update metadata, sizes, and SHA-512 hashes. Release-trust verification generates SHA-256 checksums, a versioned manifest, and a CycloneDX SBOM that includes the packaged Electron runtime. Desktop compatibility verification launches AppImage and Debian payloads against each actually available Wayland/X11 backend and records renderer, window, tray, shortcut, notification, and pixel-capture evidence. Public release builds receive signed GitHub/Sigstore provenance and SBOM attestations; see [release integrity and provenance](docs/RELEASE-TRUST.md) and the [Linux desktop compatibility matrix](docs/DESKTOP-COMPATIBILITY.md).
 
 The packaged smoke tests use `xvfb-run` or an existing X display. They launch the AppImage with a clean home directory and minimal desktop `PATH`, then migrate real 0.8 settings, tasks, inbox, templates, and artifacts before reopening the same profile with the Debian package. Corrupt-primary recovery, newer-state protection, and preservation of CLI-owned authentication are also verified. GitHub Actions runs ordinary checks for every pull request and the full release gates for version tags or a manual dispatch.
 
@@ -181,7 +182,7 @@ Version 0.9 is the stabilization milestone built on the CLI's experimental app-s
 
 New foreground and background threads default to `workspace-write` sandboxing and `on-request` approvals. Subagents inherit the parent task’s Codex permission boundary. External links are restricted to HTTPS. All model and tool activity follows the permissions, managed policy, hooks, and configuration enforced by your installed Codex CLI.
 
-Detailed 0.9 records: [compatibility and recovery](docs/COMPATIBILITY.md), [performance budgets](docs/PERFORMANCE.md), [security review](docs/SECURITY.md), and [accessibility test matrix](docs/ACCESSIBILITY.md).
+Detailed 0.9 records: [compatibility and recovery](docs/COMPATIBILITY.md), [Linux desktop compatibility](docs/DESKTOP-COMPATIBILITY.md), [performance budgets](docs/PERFORMANCE.md), [security review](docs/SECURITY.md), and [accessibility test matrix](docs/ACCESSIBILITY.md).
 
 ## License
 

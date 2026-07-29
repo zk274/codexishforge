@@ -82,5 +82,6 @@ jobs:
             dist/SHA256SUMS
             dist/release-manifest.json
             dist/release-sbom.cdx.json
+            dist/desktop-compatibility-report.json
             dist/*.sigstore.json
           retention-days: 14

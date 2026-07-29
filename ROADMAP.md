@@ -86,6 +86,7 @@ Codex Linux Community is a repository-first desktop coding agent. Desktop conven
 - [x] Security review of IPC, external links, package updates, attachments, and diagnostic redaction
 - [x] Accessibility conformance pass, screen-reader mode, and a reproducible assistive-technology test matrix
 - [x] Release reporting limited to explicit opt-in crash and compatibility reports
+- [x] Repeatable AppImage and Debian probes across available Wayland, X11/XWayland, and headless Xvfb backends
 
 ## 1.0 — Trusted Linux daily driver
 

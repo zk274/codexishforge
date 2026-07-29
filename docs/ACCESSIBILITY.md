@@ -13,7 +13,7 @@ Screen-reader mode announces completed Codex turns and requests for a decision. 
 | KDE Plasma / Wayland | Orca | Manual release-candidate check |
 | KDE Plasma / X11 | Orca | Manual release-candidate check |
 
-CI validates names, roles, live regions, focus containment, keyboard routes, visual modes, and screen-reader announcement boundaries. The packaged smoke test validates a complete renderer launch with a clean home and minimal desktop `PATH`.
+CI validates names, roles, live regions, focus containment, keyboard routes, visual modes, and screen-reader announcement boundaries. The packaged smoke test validates a complete renderer launch with a clean home and minimal desktop `PATH`. The separate [Linux desktop compatibility matrix](DESKTOP-COMPATIBILITY.md) records package and display-backend evidence without treating automation as a spoken-output pass.
 
 For each manual row:
 

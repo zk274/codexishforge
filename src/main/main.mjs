@@ -1949,6 +1949,76 @@ function createWindow({ show = true } = {}) {
       app.exit(1);
     }
   }, 500));
+  const desktopCompatibilityTestArgument = process.argv.find((argument) => argument.startsWith("--test-desktop-compatibility="));
+  if (desktopCompatibilityTestArgument) mainWindow.webContents.once("did-finish-load", () => setTimeout(async () => {
+    const outputPath = path.resolve(desktopCompatibilityTestArgument.slice(desktopCompatibilityTestArgument.indexOf("=") + 1));
+    const temporaryRoot = path.resolve(os.tmpdir());
+    if (outputPath === temporaryRoot || !outputPath.startsWith(`${temporaryRoot}${path.sep}`)) {
+      log("error", "automation.desktop_compatibility_path_rejected", { path: outputPath });
+      app.exit(1);
+      return;
+    }
+    try {
+      const renderer = await mainWindow.webContents.executeJavaScript(`(() => {
+        const dialogs = [...document.querySelectorAll('[role="dialog"]')];
+        const openDialogs = dialogs.filter((dialog) => !dialog.closest("[hidden]"));
+        return {
+          readyState: document.readyState,
+          title: document.title,
+          hasComposer: Boolean(document.querySelector("#composer")),
+          hasPrimaryNavigation: Boolean(document.querySelector('nav[aria-label]')),
+          dialogs: dialogs.length,
+          namedDialogs: dialogs.filter((dialog) => dialog.hasAttribute("aria-label") || dialog.hasAttribute("aria-labelledby")).length,
+          openDialogs: openDialogs.length,
+          backgroundInert: document.querySelector(".app-shell").inert,
+          viewport: { width: window.innerWidth, height: window.innerHeight, deviceScaleFactor: window.devicePixelRatio },
+        };
+      })()`);
+      const capture = await mainWindow.webContents.capturePage();
+      const desktop = desktopState();
+      fs.writeFileSync(outputPath, `${JSON.stringify({
+        schemaVersion: 1,
+        packaged: app.isPackaged,
+        version: app.getVersion(),
+        packageType: updateSnapshot().packageType,
+        platform: process.platform,
+        arch: process.arch,
+        runtime: {
+          electron: process.versions.electron,
+          chrome: process.versions.chrome,
+          node: process.versions.node,
+        },
+        environment: {
+          ...desktop.environment,
+          requestedBackend: app.commandLine.getSwitchValue("ozone-platform") || null,
+          displayConfigured: Boolean(process.env.DISPLAY),
+          waylandConfigured: Boolean(process.env.WAYLAND_DISPLAY),
+        },
+        window: {
+          visible: mainWindow.isVisible(),
+          minimized: mainWindow.isMinimized(),
+          destroyed: mainWindow.isDestroyed(),
+          bounds: mainWindow.getBounds(),
+          contentBounds: mainWindow.getContentBounds(),
+        },
+        renderer,
+        desktop: {
+          shortcut: desktop.shortcut,
+          tray: desktop.tray,
+          notifications: desktop.notifications,
+        },
+        capture: {
+          ...capture.getSize(),
+          pngBytes: capture.toPNG().byteLength,
+          empty: capture.isEmpty(),
+        },
+      }, null, 2)}\n`, { mode: 0o600 });
+      app.quit();
+    } catch (error) {
+      log("error", "automation.desktop_compatibility_failed", { message: error.message });
+      app.exit(1);
+    }
+  }, 750));
   const upgradeRecoveryTestArgument = process.argv.find((argument) => argument.startsWith("--test-upgrade-recovery="));
   if (upgradeRecoveryTestArgument) mainWindow.webContents.once("did-finish-load", () => setTimeout(() => {
     const outputPath = path.resolve(upgradeRecoveryTestArgument.slice(upgradeRecoveryTestArgument.indexOf("=") + 1));
