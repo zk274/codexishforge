@@ -42,6 +42,11 @@ const featureRequirements = {
   mcpManagement: [["clientRequests", "config/mcpServer/reload"]],
   configInventory: [["clientRequests", "config/read"]],
   configManagement: [["clientRequests", "config/batchWrite"]],
+  threadSearch: [["clientRequests", "thread/search"]],
+  realtimeVoice: [
+    ...["thread/realtime/start", "thread/realtime/appendAudio", "thread/realtime/stop", "thread/realtime/listVoices"].map((method) => ["clientRequests", method]),
+    ...["thread/realtime/transcript/delta", "thread/realtime/transcript/done", "thread/realtime/outputAudio/delta"].map((method) => ["serverNotifications", method]),
+  ],
 };
 
 const schemaFiles = {

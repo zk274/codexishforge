@@ -10,6 +10,7 @@ import electronUpdater from "electron-updater";
 import { XdgAutostart, resolveAutostartExecutable, resolveXdgConfigHome } from "./autostart.mjs";
 import { chatGptLoginStartParams, logoutAccount, validateChatGptLoginResponse } from "./auth-protocol.mjs";
 import { CodexClient } from "./codex-client.mjs";
+import { CreationStore, searchWorkspace, validateRealtimeAudioChunk } from "./creation-service.mjs";
 import { DEEP_LINK_SCHEME, extractDeepLinkArgument, parseDeepLink } from "./deep-links.mjs";
 import { mergeDesktopPreferences, normalizeDesktopPreferences, shortcutCandidates, shouldHideOnClose } from "./desktop-preferences.mjs";
 import {
@@ -67,6 +68,7 @@ let updateService = null;
 let updateCheckTimer = null;
 let updateCheckInterval = null;
 let taskStore = null;
+let creationStore = null;
 let taskPumpRunning = false;
 let taskPumpScheduled = false;
 let taskRecoveryAttempted = false;
@@ -96,9 +98,25 @@ const git = new GitService();
 const github = new GitHubService();
 const reviewEvidence = new Map();
 const githubContextCache = new Map();
+const realtimeSessions = new Map();
 
 function taskStoragePath() {
   return path.join(app.getPath("userData"), "tasks.json");
+}
+
+function creationStoragePath() {
+  return path.join(app.getPath("userData"), "creation.json");
+}
+
+function creationSnapshot() {
+  return creationStore?.snapshot() || { templates: [], artifacts: [] };
+}
+
+function initializeCreation() {
+  creationStore = new CreationStore(creationStoragePath(), {
+    onChange: (creation) => sendEvent({ kind: "creationState", creation }),
+  });
+  log("info", "creation.initialized", { templates: creationStore.templates.length, artifacts: creationStore.artifacts.length });
 }
 
 function taskWorktreeRoot() {
@@ -352,6 +370,29 @@ function bindClientEvents(activeClient) {
   activeClient.on("notification", (message) => {
     if (message.method === "thread/name/updated" && activeThreadContext?.id === message.params.threadId) activeThreadContext.title = message.params.name || activeThreadContext.title;
     handleTaskNotification(message);
+    if (["thread/realtime/transcript/delta", "thread/realtime/transcript/done"].includes(message.method)) {
+      const text = String(message.params?.delta || message.params?.text || "").slice(0, 20_000);
+      sendEvent({ kind: "realtimeTranscript", phase: message.method.endsWith("/done") ? "done" : "delta", threadId: message.params?.threadId || null, role: String(message.params?.role || ""), text });
+      return;
+    }
+    if (message.method === "thread/realtime/outputAudio/delta") {
+      try {
+        const audio = validateRealtimeAudioChunk(message.params?.audio);
+        sendEvent({ kind: "realtimeAudio", threadId: message.params?.threadId || null, audio });
+      } catch (error) { log("warn", "realtime.audio_rejected", { message: error.message }); }
+      return;
+    }
+    if (["thread/realtime/started", "thread/realtime/error", "thread/realtime/closed"].includes(message.method)) {
+      const threadId = message.params?.threadId || null;
+      if (message.method.endsWith("/closed")) realtimeSessions.delete(threadId);
+      sendEvent({
+        kind: "realtimeState",
+        phase: message.method.split("/").at(-1),
+        threadId,
+        error: message.method.endsWith("/error") ? String(message.params?.message || message.params?.error || "Realtime voice stopped").slice(0, 500) : null,
+      });
+      return;
+    }
     sendEvent({ kind: "notification", ...message });
     if (message.method === "turn/completed") {
       const turnId = message.params.turn?.id;
@@ -575,7 +616,7 @@ async function bootstrapData() {
   ]);
   await recoverBackgroundTasks(activeClient);
   log("info", "codex.bootstrap_complete", { threads: threads.data.length, models: models.data.length, authenticated: Boolean(account.account) });
-  return { threads: threads.data, models: models.data, account, cli: cliStatus(), compatibility, desktop: desktopState(), updates: updateSnapshot(), tasks: taskSnapshot(), lastThreadId: readSettings().lastThreadId || null };
+  return { threads: threads.data, models: models.data, account, cli: cliStatus(), compatibility, desktop: desktopState(), updates: updateSnapshot(), tasks: taskSnapshot(), creation: creationSnapshot(), lastThreadId: readSettings().lastThreadId || null };
 }
 
 async function cliVersion() {
@@ -609,6 +650,12 @@ async function diagnosticsSnapshot() {
       unread: taskSnapshot().unread,
       storage: taskStore?.filePath || null,
       worktreeRoot: taskWorktreeRoot(),
+    },
+    creation: {
+      artifacts: creationSnapshot().artifacts.length,
+      customTemplates: creationSnapshot().templates.filter((template) => !template.builtin).length,
+      storage: creationStore?.filePath || null,
+      realtimeVoice: Boolean(compatibility.features?.realtimeVoice?.available),
     },
     activeThread: activeThreadContext ? { id: activeThreadContext.id, project: path.basename(activeThreadContext.cwd), title: activeThreadContext.title } : null,
     logFile: logger?.filePath || null,
@@ -999,6 +1046,161 @@ function registerIpc() {
     if (result) throw new Error(result);
     return realTarget;
   });
+  ipcMain.handle("creation:get", () => creationSnapshot());
+  ipcMain.handle("creation:saveTemplate", (_event, payload = {}) => {
+    creationStore.saveTemplate(payload);
+    return creationSnapshot();
+  });
+  ipcMain.handle("creation:deleteTemplate", async (_event, templateId) => {
+    const template = creationSnapshot().templates.find((entry) => entry.id === templateId && !entry.builtin);
+    if (!template) throw new Error("Custom task template was not found");
+    const confirmation = await dialog.showMessageBox(mainWindow, {
+      type: "warning",
+      title: "Delete task template?",
+      message: `Delete “${template.name}”?`,
+      detail: "This removes the reusable template from this device.",
+      buttons: ["Cancel", "Delete template"],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+    if (confirmation.response !== 1) return { cancelled: true, creation: creationSnapshot() };
+    return { cancelled: false, creation: creationStore.deleteTemplate(templateId) };
+  });
+  ipcMain.handle("creation:saveArtifact", (_event, payload = {}) => {
+    creationStore.saveArtifact(payload);
+    return creationSnapshot();
+  });
+  ipcMain.handle("creation:deleteArtifact", async (_event, artifactId) => {
+    const artifact = creationStore.artifact(artifactId);
+    if (!artifact) throw new Error("Artifact was not found");
+    const confirmation = await dialog.showMessageBox(mainWindow, {
+      type: "warning",
+      title: "Delete artifact?",
+      message: `Delete “${artifact.title}”?`,
+      detail: "This removes the local Canvas artifact from this device.",
+      buttons: ["Cancel", "Delete artifact"],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+    if (confirmation.response !== 1) return { cancelled: true, creation: creationSnapshot() };
+    return { cancelled: false, creation: creationStore.deleteArtifact(artifactId) };
+  });
+  ipcMain.handle("creation:exportArtifact", async (_event, artifactId) => {
+    const artifact = creationStore.artifact(artifactId);
+    if (!artifact) throw new Error("Artifact was not found");
+    const safeName = artifact.title.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "artifact";
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: "Export Canvas artifact",
+      defaultPath: path.join(artifact.repository || app.getPath("documents"), `${safeName}.md`),
+      filters: [{ name: "Markdown", extensions: ["md"] }, { name: "Text", extensions: ["txt"] }],
+    });
+    if (result.canceled || !result.filePath) return null;
+    fs.writeFileSync(result.filePath, artifact.body, { mode: 0o600 });
+    return result.filePath;
+  });
+  ipcMain.handle("creation:attachArtifact", (_event, artifactId) => {
+    const artifact = creationStore.artifact(artifactId);
+    if (!artifact) throw new Error("Artifact was not found");
+    const safeName = artifact.title.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "artifact";
+    const filePath = path.join(attachmentDirectory(), `${safeName}-${randomUUID()}.md`);
+    fs.writeFileSync(filePath, artifact.body, { mode: 0o600, flag: "wx" });
+    return attachmentInfo(filePath);
+  });
+  ipcMain.handle("creation:search", async (_event, { query, repository = null } = {}) => {
+    const cleanQuery = typeof query === "string" ? query.trim().slice(0, 200) : "";
+    if (cleanQuery.length < 2) throw new Error("Enter at least two search characters");
+    if (repository && (!activeThreadContext?.cwd || !path.isAbsolute(repository) || fs.realpathSync(repository) !== fs.realpathSync(activeThreadContext.cwd))) throw new Error("Search is limited to the active repository");
+    const root = activeThreadContext?.cwd || null;
+    let threads = [];
+    let activeClient = client?.ready ? client : null;
+    if (!activeClient) {
+      try {
+        activeClient = await ensureConnected();
+      } catch (error) {
+        log("warn", "creation.thread_search_unavailable", { message: error.message });
+      }
+    }
+    if (activeClient) {
+      if (compatibility.features?.threadSearch?.available) {
+        try {
+          const response = await activeClient.request("thread/search", { searchTerm: cleanQuery, limit: 50, sortKey: "updated_at", sortDirection: "desc" });
+          threads = (response.data || []).map((entry) => ({ ...entry.thread, preview: entry.snippet || entry.thread?.preview }));
+        } catch (error) {
+          log("warn", "creation.thread_search_fallback", { message: error.message });
+        }
+      }
+      if (!threads.length) {
+        try {
+          const response = await activeClient.request("thread/list", { limit: 100, sortKey: "updated_at", sortDirection: "desc" });
+          threads = response.data || [];
+        } catch (error) {
+          log("warn", "creation.thread_list_unavailable", { message: error.message });
+        }
+      }
+    }
+    return searchWorkspace({
+      query: cleanQuery,
+      threads,
+      tasks: taskSnapshot().tasks,
+      artifacts: creationSnapshot().artifacts,
+      repository: root,
+    });
+  });
+  ipcMain.handle("creation:showFile", async (_event, { repository, relativePath } = {}) => {
+    if (!activeThreadContext?.cwd || !path.isAbsolute(repository) || fs.realpathSync(repository) !== fs.realpathSync(activeThreadContext.cwd)) throw new Error("Search results are limited to the active repository");
+    if (typeof relativePath !== "string" || path.isAbsolute(relativePath) || relativePath.includes("\0")) throw new Error("Search result path is invalid");
+    const candidate = fs.realpathSync(path.join(repository, relativePath));
+    const root = fs.realpathSync(repository);
+    if (candidate !== root && !candidate.startsWith(`${root}${path.sep}`)) throw new Error("Search result is outside the active repository");
+    shell.showItemInFolder(candidate);
+    return true;
+  });
+  ipcMain.handle("voice:get", async () => {
+    if (!compatibility.features?.realtimeVoice?.available) return { available: false, reason: "Update Codex to a version that advertises the realtime voice protocol." };
+    try {
+      const activeClient = await ensureConnected();
+      const response = await activeClient.request("thread/realtime/listVoices", {});
+      const voices = [...new Set([...(response.voices?.v2 || []), ...(response.voices?.v1 || [])])].slice(0, 30);
+      return { available: true, voices, defaultVoice: response.voices?.defaultV2 || response.voices?.defaultV1 || voices[0] || null, experimental: true };
+    } catch (error) {
+      return { available: false, reason: String(error.message || "Realtime voice is unavailable").slice(0, 500), experimental: true };
+    }
+  });
+  ipcMain.handle("voice:start", async (_event, { threadId, mode = "dictation", voice = null } = {}) => {
+    if (!compatibility.features?.realtimeVoice?.available) throw new Error("This Codex CLI does not advertise realtime voice");
+    if (!activeThreadContext || threadId !== activeThreadContext.id) throw new Error("Voice is limited to the active Codex thread");
+    if (!["dictation", "conversation"].includes(mode)) throw new Error("Voice mode is invalid");
+    if (voice !== null && !/^[a-z]{2,24}$/.test(voice)) throw new Error("Voice selection is invalid");
+    const activeClient = await ensureConnected();
+    if (realtimeSessions.has(threadId)) await activeClient.request("thread/realtime/stop", { threadId }).catch(() => {});
+    await activeClient.request("thread/realtime/start", {
+      threadId,
+      outputModality: mode === "conversation" ? "audio" : "text",
+      voice: mode === "conversation" ? voice : null,
+      clientManagedHandoffs: mode === "dictation",
+      flushTranscriptTailOnSessionEnd: false,
+      prompt: mode === "dictation"
+        ? "Transcribe the user's speech faithfully as prompt text. Do not answer, execute, or hand work to Codex."
+        : null,
+    });
+    realtimeSessions.set(threadId, { mode, startedAt: Date.now() });
+    return { active: true, mode };
+  });
+  ipcMain.handle("voice:appendAudio", async (_event, { threadId, audio } = {}) => {
+    if (!activeThreadContext || threadId !== activeThreadContext.id || !realtimeSessions.has(threadId)) throw new Error("No realtime voice session is active for this thread");
+    const activeClient = await ensureConnected();
+    await activeClient.request("thread/realtime/appendAudio", { threadId, audio: validateRealtimeAudioChunk(audio) });
+    return true;
+  });
+  ipcMain.handle("voice:stop", async (_event, threadId) => {
+    if (!activeThreadContext || threadId !== activeThreadContext.id) throw new Error("Voice is limited to the active Codex thread");
+    const activeClient = await ensureConnected();
+    if (realtimeSessions.has(threadId)) await activeClient.request("thread/realtime/stop", { threadId });
+    realtimeSessions.delete(threadId);
+    return { active: false };
+  });
   ipcMain.handle("extensions:get", (_event, options = {}) => extensionSnapshot({ forceReload: options?.forceReload === true }));
   ipcMain.handle("extensions:setEnabled", (_event, payload) => setExtensionEnabled(payload));
   ipcMain.handle("extensions:showConfig", (_event, filePath) => showCodexConfig(filePath));
@@ -1279,7 +1481,7 @@ function createWindow({ show = true } = {}) {
     mainWindow = null;
     if (!isQuitting) app.quit();
   });
-  const captureArgument = process.argv.find((argument) => argument.startsWith("--capture-ui=") || argument.startsWith("--capture-long-thread-ui=") || argument.startsWith("--capture-titlebar-menu-ui=") || argument.startsWith("--capture-diagnostics-ui=") || argument.startsWith("--capture-settings-ui=") || argument.startsWith("--capture-tasks-ui=") || /^--capture-review(?:-(?:ship|github|policy))?-ui=/.test(argument) || argument.startsWith("--capture-extensions-ui=") || argument.startsWith("--capture-accessibility-ui=") || argument.startsWith("--capture-updates-ui=") || argument.startsWith("--capture-region-ui=") || argument.startsWith("--capture-camera-ui=") || argument.startsWith("--capture-live-camera-ui=") || argument.startsWith("--capture-camera-attachment-ui="));
+  const captureArgument = process.argv.find((argument) => argument.startsWith("--capture-ui=") || argument.startsWith("--capture-long-thread-ui=") || argument.startsWith("--capture-titlebar-menu-ui=") || argument.startsWith("--capture-diagnostics-ui=") || argument.startsWith("--capture-settings-ui=") || argument.startsWith("--capture-tasks-ui=") || /^--capture-review(?:-(?:ship|github|policy))?-ui=/.test(argument) || /^--capture-studio(?:-(?:search|templates|voice))?-ui=/.test(argument) || argument.startsWith("--capture-extensions-ui=") || argument.startsWith("--capture-accessibility-ui=") || argument.startsWith("--capture-updates-ui=") || argument.startsWith("--capture-region-ui=") || argument.startsWith("--capture-camera-ui=") || argument.startsWith("--capture-live-camera-ui=") || argument.startsWith("--capture-camera-attachment-ui="));
   if (captureArgument) mainWindow.webContents.once("did-finish-load", () => setTimeout(async () => {
     if (captureArgument.startsWith("--capture-long-thread-ui=")) {
       await mainWindow.webContents.executeJavaScript(`(() => {
@@ -1435,6 +1637,40 @@ function createWindow({ show = true } = {}) {
         await mainWindow.webContents.executeJavaScript(`document.querySelector('[data-review-tab="${captureTab}"]').click()`);
         await new Promise((resolve) => setTimeout(resolve, 250));
       }
+    } else if (/^--capture-studio(?:-(?:search|templates|voice))?-ui=/.test(captureArgument)) {
+      const repository = process.cwd();
+      activeThreadContext = { id: "capture-studio-thread", cwd: repository, title: "Create the 0.8 workspace" };
+      const now = Date.now();
+      const captureTab = captureArgument.startsWith("--capture-studio-search-ui=")
+        ? "search"
+        : captureArgument.startsWith("--capture-studio-templates-ui=")
+          ? "templates"
+          : captureArgument.startsWith("--capture-studio-voice-ui=")
+            ? "voice"
+            : "canvas";
+      sendEvent({
+        kind: "captureStudio",
+        tab: captureTab,
+        thread: activeThreadContext,
+        creation: {
+          templates: [
+            { id: "builtin:review", name: "Review current changes", description: "Audit changes and run checks.", prompt: "Review the current changes.", isolation: "worktree", baseRef: "HEAD", model: null, effort: null, builtin: true, createdAt: 0, updatedAt: 0 },
+            { id: "capture-template", name: "Ship a milestone", description: "Finish, verify, and prepare a private milestone.", prompt: "Finish the milestone and run the complete release gate.", isolation: "worktree", baseRef: "HEAD", model: null, effort: "high", builtin: false, createdAt: now, updatedAt: now },
+          ],
+          artifacts: [
+            { id: "capture-plan", title: "0.8 richer creation plan", kind: "plan", body: "# 0.8 — Richer creation\n\nBuild a focused creation workspace beside every Codex thread.\n\n## Release gates\n\n- Keyboard-complete UI\n- Local-first persistence\n- Verified Linux packages", repository, createdAt: now, updatedAt: now },
+            { id: "capture-spec", title: "Voice safety boundary", kind: "specification", body: "# Voice boundary\n\nStream audio only during an active session.", repository, createdAt: now - 60_000, updatedAt: now - 60_000 },
+          ],
+        },
+        voiceCapability: { available: true, voices: ["cedar", "marin", "verse"], defaultVoice: "cedar", experimental: true },
+        searchResults: [
+          { kind: "thread", id: "thread-result", title: "Richer creation milestone", detail: "Implement Canvas, local search, templates, and voice.", threadId: "capture-studio-thread", project: "linuxcodexzk", updatedAt: now },
+          { kind: "task", id: "task-result", title: "Verify packaged creation tools", detail: "Completed all artifact and accessibility checks.", taskId: "capture-task", state: "completed", updatedAt: now - 1_000 },
+          { kind: "artifact", id: "artifact-result", title: "0.8 richer creation plan", detail: "Build a focused creation workspace beside every Codex thread.", artifactId: "capture-plan", artifactKind: "plan", updatedAt: now - 2_000 },
+          { kind: "file", id: "file-result", title: "src/main/creation-service.mjs", detail: "CreationStore provides durable local artifacts and task templates.", repository, relativePath: "src/main/creation-service.mjs", updatedAt: now - 3_000 },
+        ],
+      });
+      await new Promise((resolve) => setTimeout(resolve, 800));
     } else if (captureArgument.startsWith("--capture-extensions-ui=")) {
       await mainWindow.webContents.executeJavaScript("document.querySelector('#extensionsButton').click()");
       await new Promise((resolve) => setTimeout(resolve, 1800));
@@ -1816,6 +2052,7 @@ if (singleInstanceLockAcquired) app.whenReady().then(() => {
   initializeAutostart();
   initializeUpdater();
   initializeTasks();
+  initializeCreation();
   registerIpc();
   const startedByAutostart = process.argv.includes("--autostart");
   const backgroundStartup = startedByAutostart && !initialDeepLinkArgument;

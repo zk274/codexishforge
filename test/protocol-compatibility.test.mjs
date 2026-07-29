@@ -14,11 +14,13 @@ const completeMethods = {
     "initialize", "thread/list", "thread/start", "thread/resume", "turn/start", "turn/interrupt", "model/list", "account/read",
     "account/login/start", "account/logout", "process/spawn", "process/writeStdin", "process/kill", "process/resizePty",
     "skills/list", "skills/config/write", "plugin/installed", "mcpServerStatus/list", "config/mcpServer/reload", "config/read", "config/batchWrite",
+    "thread/search", "thread/realtime/start", "thread/realtime/appendAudio", "thread/realtime/stop", "thread/realtime/listVoices",
   ]),
   clientNotifications: new Set(["initialized"]),
   serverNotifications: new Set([
     "turn/started", "turn/completed", "turn/diff/updated", "item/started", "item/completed", "item/agentMessage/delta",
     "item/fileChange/patchUpdated", "process/outputDelta", "process/exited", "account/login/completed", "account/updated",
+    "thread/realtime/transcript/delta", "thread/realtime/transcript/done", "thread/realtime/outputAudio/delta",
   ]),
   serverRequests: new Set([
     "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/tool/requestUserInput", "mcpServer/elicitation/request",
@@ -39,6 +41,7 @@ test("reports compatible, partial, and incompatible protocol surfaces", () => {
   const compatible = evaluateProtocolCompatibility(completeMethods, { checkedAt: "now" });
   assert.equal(compatible.status, "compatible");
   assert.equal(compatible.features.terminal.available, true);
+  assert.equal(compatible.features.realtimeVoice.available, true);
 
   const withoutTerminal = { ...completeMethods, clientRequests: new Set([...completeMethods.clientRequests].filter((method) => !method.startsWith("process/"))) };
   const partial = evaluateProtocolCompatibility(withoutTerminal, { checkedAt: "now" });

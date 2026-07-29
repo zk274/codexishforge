@@ -73,10 +73,10 @@ Codex Linux Community is a repository-first desktop coding agent. Desktop conven
 
 ## 0.8 — Richer creation
 
-- Voice dictation, with realtime voice conversations where the public Codex interface supports them
-- Canvas-style long-form editing for plans, specifications, and documentation
-- Search across local threads, task outcomes, files, and generated artifacts
-- Reusable task templates for common repository workflows
+- [x] Voice dictation, with realtime voice conversations where the public Codex interface supports them
+- [x] Canvas-style long-form editing for plans, specifications, and documentation
+- [x] Search across local threads, task outcomes, files, and generated artifacts
+- [x] Reusable task templates for common repository workflows
 
 ## 0.9 — Stabilization
 

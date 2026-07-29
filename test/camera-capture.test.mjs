@@ -7,16 +7,17 @@ import {
   validateCameraFrameSize,
 } from "../src/shared/camera-capture.mjs";
 
-test("camera permission request allows video only from the trusted main window", () => {
+test("media permission request allows audio and video only from the trusted main window", () => {
   assert.equal(cameraPermissionRequestAllowed({ trustedWindow: true, permission: "media", mediaTypes: ["video"] }), true);
-  assert.equal(cameraPermissionRequestAllowed({ trustedWindow: true, permission: "media", mediaTypes: ["video", "audio"] }), false);
+  assert.equal(cameraPermissionRequestAllowed({ trustedWindow: true, permission: "media", mediaTypes: ["video", "audio"] }), true);
+  assert.equal(cameraPermissionRequestAllowed({ trustedWindow: true, permission: "media", mediaTypes: ["audio"] }), true);
   assert.equal(cameraPermissionRequestAllowed({ trustedWindow: false, permission: "media", mediaTypes: ["video"] }), false);
   assert.equal(cameraPermissionRequestAllowed({ trustedWindow: true, permission: "notifications", mediaTypes: ["video"] }), false);
 });
 
-test("camera permission checks allow only trusted video checks", () => {
+test("media permission checks allow trusted audio and video checks", () => {
   assert.equal(cameraPermissionCheckAllowed({ trustedWindow: true, permission: "media", mediaType: "video" }), true);
-  assert.equal(cameraPermissionCheckAllowed({ trustedWindow: true, permission: "media", mediaType: "audio" }), false);
+  assert.equal(cameraPermissionCheckAllowed({ trustedWindow: true, permission: "media", mediaType: "audio" }), true);
   assert.equal(cameraPermissionCheckAllowed({ trustedWindow: false, permission: "media", mediaType: "video" }), false);
 });
 

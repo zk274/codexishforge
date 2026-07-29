@@ -8,12 +8,12 @@ export function cameraPermissionRequestAllowed({ trustedWindow, permission, medi
     && permission === "media"
     && Array.isArray(mediaTypes)
     && mediaTypes.length > 0
-    && mediaTypes.every((type) => type === "video"),
+    && mediaTypes.every((type) => type === "video" || type === "audio"),
   );
 }
 
 export function cameraPermissionCheckAllowed({ trustedWindow, permission, mediaType }) {
-  return Boolean(trustedWindow && permission === "media" && mediaType === "video");
+  return Boolean(trustedWindow && permission === "media" && (mediaType === "video" || mediaType === "audio"));
 }
 
 export function validateCameraFrameDataUrl(dataUrl) {

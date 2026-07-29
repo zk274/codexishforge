@@ -12,7 +12,11 @@ An unofficial Linux desktop client powered by the installed OpenAI Codex CLI. It
 - Render Markdown, highlighted code, tables, links, and copyable code blocks
 - Attach files and images using the file picker, clipboard, or drag and drop
 - Capture full screens and application windows, or drag-select a precise region, as image attachments
-- Preview an available webcam, switch cameras, and capture a still image attachment without requesting microphone access
+- Preview an available webcam, switch cameras, and capture a still image attachment; microphone permission is requested only after starting voice
+- Dictate editable prompts through the installed Codex realtime interface, with capability-gated live voice conversations
+- Draft and preview durable Markdown plans, specifications, documentation, and notes in a local Canvas
+- Search across Codex threads, task outcomes, repository files, and Canvas artifacts
+- Save and reuse built-in or custom task templates from the Task Center
 - Review Git branches plus working, staged, and current-turn diffs per file
 - Stage, unstage, safely discard working changes, and commit staged changes
 - Review working changes per hunk, stage accepted hunks, and reject individual hunks after confirmation
@@ -54,7 +58,7 @@ An unofficial Linux desktop client powered by the installed OpenAI Codex CLI. It
 - Node.js 22 or newer for development
 - The current [OpenAI Codex CLI](https://developers.openai.com/codex/cli/) installed and available as `codex`
 - An authenticated CLI session (`codex login` or an API key supported by the CLI)
-- Optional: authenticated [GitHub CLI](https://cli.github.com/) for private issue, pull-request, review, Actions, policy, push, and draft-PR context
+- Optional: authenticated [GitHub CLI](https://cli.github.com/) for private issue, pull-request, review, Actions, policy, and draft-PR context; Git push uses the remote's configured credentials
 
 If a desktop launcher cannot find your CLI, set `CODEX_CLI_PATH` to its absolute path before starting the app. The client checks common install locations and Codex binaries bundled with OpenAI extensions installed in VS Code, VS Code Insiders, VSCodium, Cursor, and Windsurf. If discovery still fails, open the account panel in the lower-left corner and select **Locate Codex CLI**.
 
@@ -71,7 +75,7 @@ The development launcher removes `ELECTRON_RUN_AS_NODE` because Codex-hosted she
 
 Open account settings with **Ctrl+,** to choose 100–150% text size, reduced motion, or high contrast. Codex also follows the desktop's reduced-motion, increased-contrast, and forced-color preferences.
 
-Use **Ctrl+N** for a new thread, **Ctrl+K** or **/** to search threads, **Ctrl+J** for the terminal, **Ctrl+Shift+B** for background tasks, **Ctrl+Shift+R** for the Review Center, **Alt+Left** to return home, and **F6** to cycle through the primary work areas. Arrow keys navigate thread lists and tabs. In region capture, arrow keys move the selection and **Shift+Arrow** resizes it. Dialogs contain keyboard focus and close with **Escape**.
+Use **Ctrl+N** for a new thread, **Ctrl+K** or **/** to search threads, **Ctrl+J** for the terminal, **Ctrl+Shift+B** for background tasks, **Ctrl+Shift+R** for the Review Center, **Ctrl+Shift+F** for workspace search, **Alt+Left** to return home, and **F6** to cycle through the primary work areas. Arrow keys navigate thread lists and tabs. In region capture, arrow keys move the selection and **Shift+Arrow** resizes it. Dialogs contain keyboard focus and close with **Escape**.
 
 ## Task Center
 
@@ -82,6 +86,18 @@ Select **Tasks** in the title bar to queue work that can continue while you use 
 Task metadata is written atomically to a mode-`0600` local JSON file. On restart, queued tasks return to the queue and active tasks resume their saved Codex threads. Managed worktrees are retained for inspection and reuse; the Task Center can open them directly.
 
 Subagent activity comes from Codex’s structured collaboration items. The interface shows ownership, status, handoffs, selected model and reasoning effort when available, while Codex remains responsible for spawning, steering, limits, and sandbox inheritance.
+
+## Creation Studio
+
+Select **Studio** in the title bar for Canvas, workspace search, templates, and voice.
+
+Canvas artifacts are Markdown plans, specifications, documentation, or notes stored atomically in the application's private user-data directory. The split editor provides a sanitized live preview. An artifact can be attached to a Codex prompt or explicitly exported as a Markdown file; deleting one requires native confirmation.
+
+Workspace search combines the Codex CLI's thread search when advertised, background-task outcomes, Canvas artifacts, and bounded local repository scanning. File search skips dependency and build directories, symlinks, environment files, credential-like names, and private-key formats. File results can only reveal files inside the active thread's repository.
+
+Task templates preserve a prompt, worktree/local isolation, starting revision, model, and reasoning choice. Four built-in repository workflows are included, while custom templates persist locally and can be managed from Studio or applied in the Task Center.
+
+The composer microphone starts dictation only when the installed CLI advertises the complete experimental realtime voice surface. Audio is streamed during the active session as bounded mono PCM chunks. Dictation uses client-managed handoffs, writes transcript text into the editable composer, and never starts a Codex turn until **Send** is pressed. Studio can also begin an experimental realtime voice conversation when the account, rollout, and workspace support it. Without that capability, every non-voice Creation Studio feature remains available.
 
 ## Review Center
 
@@ -129,7 +145,7 @@ Packages are written to `dist/`. The build produces an AppImage, a `.deb` instal
 Classic confinement is intentional: Codex must open user-selected repositories and launch the host CLI. Install a local Snap build with:
 
 ```bash
-sudo snap install --classic --dangerous "dist/Codex Linux Community-0.7.0-amd64.snap"
+sudo snap install --classic --dangerous "dist/Codex Linux Community-0.8.0-amd64.snap"
 ```
 
 Publishing a classic snap in the Snap Store requires a confinement review.
@@ -144,13 +160,13 @@ Release builds generate update metadata with SHA-512 artifact hashes. Stable ver
 
 The renderer is a dependency-free HTML/CSS/JavaScript interface running with Electron context isolation, Node integration disabled, renderer sandboxing enabled, and a restrictive content security policy. A narrow preload bridge sends validated desktop actions to the main process.
 
-Before connecting, the main process asks the installed CLI to generate its version-specific app-server schema and checks the methods needed for core threads, authentication, approvals, change streaming, and terminals. Incompatible core protocols stop with upgrade guidance; partial protocols keep supported workflows available. It then starts `codex app-server --stdio`, performs the required `initialize`/`initialized` handshake, and communicates through the line-delimited JSON protocol. Background tasks use the same structured thread, turn, request, status, and collaboration events. Review and Git operations are validated independently in the main process; optional GitHub context uses GitHub CLI authentication. Credentials remain owned by the Codex and GitHub CLIs; the desktop app does not collect or store them.
+Before connecting, the main process asks the installed CLI to generate its version-specific app-server schema and checks the methods needed for core threads, authentication, approvals, change streaming, terminals, search, and realtime voice. Incompatible core protocols stop with upgrade guidance; partial protocols keep supported workflows available. It then starts `codex app-server --stdio`, performs the required `initialize`/`initialized` handshake, and communicates through the line-delimited JSON protocol. Background tasks and voice use structured protocol events. Creation artifacts and templates remain local; Review and Git operations are validated independently in the main process; optional GitHub context uses GitHub CLI authentication. Credentials remain owned by the Codex and GitHub CLIs; the desktop app does not collect or store them.
 
 Open the **•••** menu for diagnostics. Reports include runtime and compatibility state plus recent structured events. Authorization headers, API keys, tokens, passwords, secrets, and OAuth query values are redacted before logs are written. Logs rotate under the application's user-data directory.
 
 ## Current scope
 
-This is an early desktop client built on the CLI's experimental app-server protocol. Core local coding, Git review, optional GitHub collaboration, extension-control, background-task, worktree, and agent-activity workflows are present, but cloud task management, voice/realtime mode, public plugin browsing and installation, and Canvas-style editing are not yet exposed. Unknown server requests are rejected safely instead of being guessed. See [ROADMAP.md](ROADMAP.md) for the next desktop-focused milestones.
+This is an early desktop client built on the CLI's experimental app-server protocol. Core local coding, Git review, optional GitHub collaboration, extension control, background tasks, worktrees, agent activity, local creation, search, templates, and capability-gated realtime voice are present. Cloud task management and public plugin browsing or installation are not yet exposed. Unknown server requests are rejected safely instead of being guessed. See [ROADMAP.md](ROADMAP.md) for the next desktop-focused milestones.
 
 ## Safety and privacy
 

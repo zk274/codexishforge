@@ -33,6 +33,9 @@
         <button id="reviewButton" class="titlebar-button" type="button" title="Open review and collaboration">
           <span aria-hidden="true">✓</span><span>Review</span><b id="reviewBadge" hidden>0</b>
         </button>
+        <button id="studioButton" class="titlebar-button" type="button" title="Open creation studio">
+          <span aria-hidden="true">✦</span><span>Studio</span>
+        </button>
       </nav>
     </div>
 
@@ -96,6 +99,7 @@
                 <button id="attachButton" class="option-button" title="Attach files" aria-label="Attach files">＋</button>
                 <button id="screenshotButton" class="option-button" title="Take screenshot" aria-label="Take screenshot">▣</button>
                 <button id="cameraButton" class="option-button" title="Take camera photo" aria-label="Take camera photo">◉</button>
+                <button id="dictationButton" class="option-button" title="Start voice dictation" aria-label="Start voice dictation" disabled>●</button>
                 <button id="folderButton" class="option-button" title="Choose project" aria-label="Choose project"><span aria-hidden="true">⌂</span> <span id="folderName">Project</span></button>
                 <select id="modelSelect" aria-label="Model"><option value="">Default model</option></select>
                 <select id="effortSelect" aria-label="Reasoning effort">
@@ -165,6 +169,11 @@
             <button id="queueTaskButton" class="primary-action" type="submit">Queue task</button>
           </div>
           <label class="task-wide-field"><span>Task</span><textarea id="taskPromptInput" rows="3" maxlength="20000" placeholder="Describe the outcome, constraints, and verification you want…" required></textarea></label>
+          <div class="task-template-row">
+            <label><span>Template</span><select id="taskTemplateSelect"><option value="">Start without a template</option></select></label>
+            <button id="applyTaskTemplateButton" type="button" class="secondary-button">Apply template</button>
+            <button id="saveTaskTemplateButton" type="button" class="secondary-button">Save current as template…</button>
+          </div>
           <div class="task-form-grid">
             <label><span>Title <small>optional</small></span><input id="taskTitleInput" maxlength="120" placeholder="Generated from the task" /></label>
             <label><span>Repository</span><span class="task-path-input"><input id="taskRepositoryInput" aria-label="Task repository" readonly required /><button id="chooseTaskRepositoryButton" type="button" class="secondary-button">Choose…</button></span></label>
@@ -190,6 +199,93 @@
             <div id="taskInboxList" class="task-inbox-list" role="list"><p class="empty-list">You’re all caught up.</p></div>
           </section>
         </div>
+      </section>
+    </div>
+
+    <div id="studioOverlay" class="overlay studio-overlay" hidden>
+      <section class="studio-dialog" role="dialog" aria-modal="true" aria-labelledby="studioTitle">
+        <button id="closeStudioButton" class="dialog-close" title="Close" aria-label="Close Creation Studio">×</button>
+        <header class="studio-header">
+          <div><p class="eyebrow">CODEX 0.8</p><h2 id="studioTitle">Creation Studio</h2><p>Shape long-form work, find local context, reuse repository workflows, and talk to Codex.</p></div>
+          <span id="studioStatus" class="studio-status" aria-live="polite">Local-first creation tools</span>
+        </header>
+        <nav id="studioTabs" class="studio-tabs" role="tablist" aria-label="Creation Studio views">
+          <button type="button" role="tab" data-studio-tab="canvas" aria-controls="studioCanvas" aria-selected="true">Canvas</button>
+          <button type="button" role="tab" data-studio-tab="search" aria-controls="studioSearch" aria-selected="false" tabindex="-1">Search</button>
+          <button type="button" role="tab" data-studio-tab="templates" aria-controls="studioTemplates" aria-selected="false" tabindex="-1">Templates</button>
+          <button type="button" role="tab" data-studio-tab="voice" aria-controls="studioVoice" aria-selected="false" tabindex="-1">Voice</button>
+        </nav>
+
+        <section id="studioCanvas" class="studio-view studio-canvas" role="tabpanel">
+          <aside class="artifact-sidebar">
+            <div class="studio-section-heading"><div><p class="eyebrow">ARTIFACTS</p><h3>Plans and documents</h3></div><button id="newArtifactButton" class="primary-action" type="button">New</button></div>
+            <div id="artifactList" class="artifact-list" role="list"></div>
+          </aside>
+          <div class="artifact-editor">
+            <div id="artifactEmpty" class="studio-empty">
+              <span aria-hidden="true">✦</span><h3>Create a working document</h3><p>Draft a plan, specification, documentation, or durable notes beside your Codex thread.</p>
+              <button id="newArtifactEmptyButton" class="primary-action" type="button">Create artifact</button>
+            </div>
+            <form id="artifactForm" hidden>
+              <div class="artifact-toolbar">
+                <input id="artifactTitleInput" maxlength="160" aria-label="Artifact title" placeholder="Untitled artifact" />
+                <select id="artifactKindSelect" aria-label="Artifact kind"><option value="plan">Plan</option><option value="specification">Specification</option><option value="documentation">Documentation</option><option value="notes">Notes</option></select>
+                <button id="saveArtifactButton" class="primary-action" type="submit">Save</button>
+                <button id="attachArtifactButton" class="secondary-button" type="button">Attach to prompt</button>
+                <button id="exportArtifactButton" class="secondary-button" type="button">Export…</button>
+                <button id="deleteArtifactButton" class="danger-button" type="button">Delete</button>
+              </div>
+              <div class="artifact-surfaces">
+                <label><span>Markdown editor</span><textarea id="artifactBodyInput" maxlength="500000" spellcheck="true" aria-label="Artifact Markdown"></textarea></label>
+                <section class="artifact-preview" aria-labelledby="artifactPreviewTitle"><span id="artifactPreviewTitle">Preview</span><article id="artifactPreview"></article></section>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <section id="studioSearch" class="studio-view studio-search" role="tabpanel" hidden>
+          <form id="workspaceSearchForm" role="search">
+            <label><span>Search local work</span><input id="workspaceSearchInput" type="search" minlength="2" maxlength="200" placeholder="Threads, task outcomes, files, and artifacts…" required /></label>
+            <button id="workspaceSearchButton" class="primary-action" type="submit">Search</button>
+          </form>
+          <p class="studio-note">Repository search skips dependencies, build output, symlinks, environment files, credentials, and private-key formats.</p>
+          <div id="workspaceSearchSummary" class="search-summary" aria-live="polite">Enter at least two characters.</div>
+          <div id="workspaceSearchResults" class="workspace-search-results" role="list"></div>
+        </section>
+
+        <section id="studioTemplates" class="studio-view studio-templates" role="tabpanel" hidden>
+          <div class="template-list-column">
+            <div class="studio-section-heading"><div><p class="eyebrow">REUSABLE WORK</p><h3>Task templates</h3></div><button id="newTemplateButton" class="primary-action" type="button">New</button></div>
+            <div id="templateList" class="template-list" role="list"></div>
+          </div>
+          <form id="templateForm" class="template-editor">
+            <input id="templateIdInput" type="hidden" />
+            <label><span>Name</span><input id="templateNameInput" maxlength="120" required placeholder="Repository workflow" /></label>
+            <label><span>Description</span><input id="templateDescriptionInput" maxlength="300" placeholder="When this template is useful" /></label>
+            <label><span>Task prompt</span><textarea id="templatePromptInput" rows="10" maxlength="20000" required placeholder="Outcome, constraints, and verification…"></textarea></label>
+            <div class="template-options">
+              <label><span>Isolation</span><select id="templateIsolationSelect"><option value="worktree">Isolated worktree</option><option value="local">Local checkout</option></select></label>
+              <label><span>Starting revision</span><input id="templateBaseRefInput" maxlength="240" value="HEAD" /></label>
+              <label><span>Reasoning</span><select id="templateEffortSelect"><option value="">Default</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option></select></label>
+            </div>
+            <div class="template-actions"><button id="deleteTemplateButton" class="danger-button" type="button" hidden>Delete</button><button class="primary-action" type="submit">Save template</button></div>
+          </form>
+        </section>
+
+        <section id="studioVoice" class="studio-view studio-voice" role="tabpanel" hidden>
+          <div class="voice-orb" id="voiceOrb" aria-hidden="true"><span>●</span></div>
+          <p class="eyebrow">VOICE</p>
+          <h3 id="voiceTitle">Talk through the work</h3>
+          <p id="voiceDescription">Dictation turns speech into editable prompt text. Live voice can coordinate with Codex when the installed CLI and your account support the experimental realtime interface.</p>
+          <label class="voice-select"><span>Conversation voice</span><select id="voiceSelect" disabled><option value="">Checking availability…</option></select></label>
+          <div class="voice-actions">
+            <button id="studioDictationButton" class="secondary-button" type="button" disabled>Start dictation</button>
+            <button id="voiceConversationButton" class="primary-action" type="button" disabled>Start voice conversation</button>
+            <button id="stopVoiceButton" class="danger-button" type="button" hidden>End voice</button>
+          </div>
+          <div id="voiceTranscript" class="voice-transcript" aria-live="polite">No voice session active.</div>
+          <p class="studio-note">Microphone audio is streamed only during an active session. Dictation text remains editable and is never sent as a Codex turn until you press Send.</p>
+        </section>
       </section>
     </div>
 

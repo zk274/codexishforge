@@ -16,7 +16,7 @@ test("primary navigation and changing status have accessible semantics", () => {
 
 test("every modal dialog is named and modal focus is contained", () => {
   const dialogs = [...html.matchAll(/<(?:section|div)[^>]*role="dialog"[^>]*>/g)].map(([tag]) => tag);
-  assert.equal(dialogs.length, 9);
+  assert.equal(dialogs.length, 10);
   for (const dialog of dialogs) {
     assert.match(dialog, /aria-modal="true"/);
     assert.match(dialog, /aria-labelledby="[^"]+"/);
@@ -31,7 +31,7 @@ test("window controls have reserved titlebar space and non-blocking dialogs dism
   assert.match(css, /\.titlebar\s*\{[^}]*padding:\s*0 calc\(18px \+ var\(--window-controls-width\)\) 0 18px/);
   assert.match(app, /function closeOnBackdropClick/);
   assert.match(app, /event\.target === event\.currentTarget/);
-  assert.match(app, /\[els\.tasksOverlay, els\.reviewOverlay, els\.authOverlay, els\.extensionsOverlay, els\.screenshotOverlay, els\.cameraOverlay, els\.diagnosticsOverlay\]/);
+  assert.match(app, /\[els\.tasksOverlay, els\.reviewOverlay, els\.studioOverlay, els\.authOverlay, els\.extensionsOverlay, els\.screenshotOverlay, els\.cameraOverlay, els\.diagnosticsOverlay\]/);
   assert.match(main, /Dialog backdrop validation failed/);
 });
 
@@ -41,6 +41,7 @@ test("home is centered and account settings live in an accessible brand menu", (
   assert.match(html, /id="settingsButton"[^>]*role="menuitem"/);
   assert.match(html, /id="extensionsButton"[^>]*role="menuitem"/);
   assert.match(html, /id="reviewButton"[^>]*title="Open review and collaboration"/);
+  assert.match(html, /id="studioButton"[^>]*title="Open creation studio"/);
   assert.match(css, /\.titlebar-navigation\s*\{[^}]*position:absolute;left:50%;top:50%;transform:translate\(-50%,-50%\)/);
   assert.match(app, /function setBrandMenuOpen/);
   assert.match(app, /!event\.target\.closest\("\.brand-menu"\)/);
@@ -52,11 +53,25 @@ test("keyboard paths cover threads, tabs, region capture, and global navigation"
   assert.match(app, /document\.querySelector\("\.diff-tabs"\)\.addEventListener\("keydown"/);
   assert.match(app, /els\.terminalTabs\.addEventListener\("keydown"/);
   assert.match(app, /els\.reviewTabs\.addEventListener\("keydown"/);
+  assert.match(app, /els\.studioTabs\.addEventListener\("keydown"/);
   assert.match(app, /els\.regionCanvas\.addEventListener\("keydown"/);
   assert.match(app, /event\.key === "F6"/);
   assert.match(app, /event\.altKey && event\.key === "ArrowLeft"/);
   assert.match(app, /event\.shiftKey && event\.key\.toLowerCase\(\) === "b"/);
   assert.match(app, /event\.shiftKey && event\.key\.toLowerCase\(\) === "r"/);
+  assert.match(app, /event\.shiftKey && event\.key\.toLowerCase\(\) === "f"/);
+});
+
+test("creation tools expose local persistence, safe search, and explicit voice state", () => {
+  assert.match(html, /id="studioCanvas"[^>]*role="tabpanel"/);
+  assert.match(html, /id="studioSearch"[^>]*role="tabpanel"/);
+  assert.match(html, /id="studioTemplates"[^>]*role="tabpanel"/);
+  assert.match(html, /id="studioVoice"[^>]*role="tabpanel"/);
+  assert.match(html, /Microphone audio is streamed only during an active session/);
+  assert.match(main, /clientManagedHandoffs: mode === "dictation"/);
+  assert.match(main, /Search is limited to the active repository/);
+  assert.match(main, /title: "Delete artifact\?"/);
+  assert.match(main, /title: "Delete task template\?"/);
 });
 
 test("review mutations retain explicit confirmation boundaries", () => {

@@ -15,16 +15,17 @@ import { selectionFromPoints, selectionToImage } from "../shared/capture-region.
 
 const api = window.codexDesktop;
 const $ = (selector) => document.querySelector(selector);
-const state = { connected: false, connectionError: null, account: null, cli: null, compatibility: null, desktop: null, updates: null, extensions: null, tasks: { tasks: [], inbox: [], limits: { maxConcurrent: 2, active: 0, queued: 0 }, counts: {}, unread: 0 }, review: null, reviewTab: "changes", loginPending: false, restorationAttempted: false, threads: [], models: [], activeThread: null, turns: [], activeTurnId: null, diff: "", diffView: "working", git: null, gitDiffs: { working: "", staged: "" }, gitSelection: null, gitFileDiff: "", attachments: [], terminals: createTerminalCollection(), requestQueue: [], currentRequest: null, pendingDeepLinks: [], flushingDeepLinks: false };
+const state = { connected: false, connectionError: null, account: null, cli: null, compatibility: null, desktop: null, updates: null, extensions: null, tasks: { tasks: [], inbox: [], limits: { maxConcurrent: 2, active: 0, queued: 0 }, counts: {}, unread: 0 }, creation: { templates: [], artifacts: [] }, studioTab: "canvas", selectedArtifactId: null, selectedTemplateId: null, searchResults: [], voiceCapability: null, review: null, reviewTab: "changes", loginPending: false, restorationAttempted: false, threads: [], models: [], activeThread: null, turns: [], activeTurnId: null, diff: "", diffView: "working", git: null, gitDiffs: { working: "", staged: "" }, gitSelection: null, gitFileDiff: "", attachments: [], terminals: createTerminalCollection(), requestQueue: [], currentRequest: null, pendingDeepLinks: [], flushingDeepLinks: false };
 const regionCapture = { source: null, start: null, selection: null, dragging: false };
 const cameraCapture = { stream: null, requestId: 0, devices: [] };
+const voiceCapture = { stream: null, context: null, source: null, processor: null, mode: null, transcript: "", chunkQueue: Promise.resolve(), playbackAt: 0 };
 
 const els = {
-  home: $("#homeButton"), tasksButton: $("#tasksButton"), tasksBadge: $("#tasksBadge"), reviewButton: $("#reviewButton"), reviewBadge: $("#reviewBadge"), brandMenuButton: $("#brandMenuButton"), brandMenu: $("#brandMenu"), settings: $("#settingsButton"), extensions: $("#extensionsButton"),
+  home: $("#homeButton"), tasksButton: $("#tasksButton"), tasksBadge: $("#tasksBadge"), reviewButton: $("#reviewButton"), reviewBadge: $("#reviewBadge"), studioButton: $("#studioButton"), brandMenuButton: $("#brandMenuButton"), brandMenu: $("#brandMenu"), settings: $("#settingsButton"), extensions: $("#extensionsButton"),
   threadList: $("#threadList"), threadSearch: $("#threadSearch"), refresh: $("#refreshButton"),
   newThread: $("#newThreadButton"), openProject: $("#openProjectButton"), folder: $("#folderButton"), folderName: $("#folderName"),
   threadTitle: $("#threadTitle"), projectPath: $("#projectPath"), welcome: $("#welcome"), messages: $("#messages"), conversation: $("#conversation"),
-  prompt: $("#promptInput"), send: $("#sendButton"), stop: $("#stopButton"), model: $("#modelSelect"), effort: $("#effortSelect"),
+  prompt: $("#promptInput"), send: $("#sendButton"), stop: $("#stopButton"), model: $("#modelSelect"), effort: $("#effortSelect"), dictation: $("#dictationButton"),
   accountName: $("#accountName"), accountPlan: $("#accountPlan"), connectionDot: $("#connectionDot"), diffButton: $("#diffButton"),
   diffBadge: $("#diffBadge"), diffPanel: $("#diffPanel"), diffContent: $("#diffContent"), diffSummary: $("#diffSummary"), closeDiff: $("#closeDiffButton"),
   diffFiles: $("#diffFiles"), gitSelection: $("#gitSelection"), gitPrimary: $("#gitPrimaryAction"), gitDiscard: $("#gitDiscardButton"),
@@ -49,6 +50,7 @@ const els = {
   taskForm: $("#taskForm"), taskPrompt: $("#taskPromptInput"), taskTitle: $("#taskTitleInput"), taskRepository: $("#taskRepositoryInput"),
   chooseTaskRepository: $("#chooseTaskRepositoryButton"), taskIsolation: $("#taskIsolationSelect"), taskBaseRef: $("#taskBaseRefInput"),
   taskModel: $("#taskModelSelect"), taskEffort: $("#taskEffortSelect"), queueTask: $("#queueTaskButton"),
+  taskTemplate: $("#taskTemplateSelect"), applyTaskTemplate: $("#applyTaskTemplateButton"), saveTaskTemplate: $("#saveTaskTemplateButton"),
   taskQueueList: $("#taskQueueList"), taskQueueCount: $("#taskQueueCount"), agentActivityList: $("#agentActivityList"),
   agentActivityCount: $("#agentActivityCount"), taskInboxList: $("#taskInboxList"), taskInboxCount: $("#taskInboxCount"),
   reviewOverlay: $("#reviewOverlay"), closeReview: $("#closeReviewButton"), refreshReview: $("#refreshReviewButton"), reviewCopy: $("#reviewCopy"), reviewSummary: $("#reviewSummary"),
@@ -57,6 +59,15 @@ const els = {
   reviewPushStatus: $("#reviewPushStatus"), reviewPush: $("#reviewPushButton"), reviewPrForm: $("#reviewPrForm"), reviewPrBase: $("#reviewPrBase"), reviewPrTitle: $("#reviewPrTitle"), reviewPrBody: $("#reviewPrBody"), reviewPrButton: $("#reviewPrButton"),
   githubReviewStatus: $("#githubReviewStatus"), reviewIssues: $("#reviewIssues"), reviewPulls: $("#reviewPulls"), reviewRuns: $("#reviewRuns"), reviewComments: $("#reviewComments"),
   reviewPolicy: $("#reviewPolicy"), copyTaskSummary: $("#copyTaskSummaryButton"), copyShareableDiagnostics: $("#copyShareableDiagnosticsButton"),
+  studioOverlay: $("#studioOverlay"), closeStudio: $("#closeStudioButton"), studioStatus: $("#studioStatus"), studioTabs: $("#studioTabs"),
+  studioCanvas: $("#studioCanvas"), studioSearch: $("#studioSearch"), studioTemplates: $("#studioTemplates"), studioVoice: $("#studioVoice"),
+  artifactList: $("#artifactList"), newArtifact: $("#newArtifactButton"), newArtifactEmpty: $("#newArtifactEmptyButton"), artifactEmpty: $("#artifactEmpty"), artifactForm: $("#artifactForm"),
+  artifactTitle: $("#artifactTitleInput"), artifactKind: $("#artifactKindSelect"), artifactBody: $("#artifactBodyInput"), artifactPreview: $("#artifactPreview"),
+  saveArtifact: $("#saveArtifactButton"), attachArtifact: $("#attachArtifactButton"), exportArtifact: $("#exportArtifactButton"), deleteArtifact: $("#deleteArtifactButton"),
+  workspaceSearchForm: $("#workspaceSearchForm"), workspaceSearchInput: $("#workspaceSearchInput"), workspaceSearchButton: $("#workspaceSearchButton"), workspaceSearchSummary: $("#workspaceSearchSummary"), workspaceSearchResults: $("#workspaceSearchResults"),
+  templateList: $("#templateList"), templateForm: $("#templateForm"), newTemplate: $("#newTemplateButton"), templateId: $("#templateIdInput"), templateName: $("#templateNameInput"), templateDescription: $("#templateDescriptionInput"),
+  templatePrompt: $("#templatePromptInput"), templateIsolation: $("#templateIsolationSelect"), templateBaseRef: $("#templateBaseRefInput"), templateEffort: $("#templateEffortSelect"), deleteTemplate: $("#deleteTemplateButton"),
+  voiceOrb: $("#voiceOrb"), voiceTitle: $("#voiceTitle"), voiceDescription: $("#voiceDescription"), voiceSelect: $("#voiceSelect"), studioDictation: $("#studioDictationButton"), voiceConversation: $("#voiceConversationButton"), stopVoice: $("#stopVoiceButton"), voiceTranscript: $("#voiceTranscript"),
   gitBranch: $("#gitBranch"), refreshGit: $("#refreshGitButton"), terminalButton: $("#terminalButton"), terminalBadge: $("#terminalBadge"), terminalPanel: $("#terminalPanel"),
   terminalTabs: $("#terminalTabs"), terminalTitle: $("#terminalTitle"), terminalStatus: $("#terminalStatus"), terminalOutput: $("#terminalOutput"), terminalForm: $("#terminalForm"), terminalInput: $("#terminalInput"),
   newTerminal: $("#newTerminalButton"), closeTerminal: $("#closeTerminalButton"), restartTerminal: $("#restartTerminalButton"), attachmentTray: $("#attachmentTray"), attach: $("#attachButton"), screenshot: $("#screenshotButton"), camera: $("#cameraButton"), composer: $("#composer"),
@@ -84,7 +95,7 @@ function focusableElements(container) {
 }
 
 function modalOverlays() {
-  return [els.overlay, els.tasksOverlay, els.reviewOverlay, els.authOverlay, els.extensionsOverlay, els.screenshotOverlay, els.cameraOverlay, els.diagnosticsOverlay, els.regionOverlay];
+  return [els.overlay, els.tasksOverlay, els.reviewOverlay, els.studioOverlay, els.authOverlay, els.extensionsOverlay, els.screenshotOverlay, els.cameraOverlay, els.diagnosticsOverlay, els.regionOverlay];
 }
 
 function activeModal() {
@@ -150,6 +161,7 @@ function closeActiveModal(overlay) {
   else if (overlay === els.screenshotOverlay) hideDialog(els.screenshotOverlay, els.screenshot);
   else if (overlay === els.tasksOverlay) hideDialog(els.tasksOverlay, els.tasksButton);
   else if (overlay === els.reviewOverlay) hideDialog(els.reviewOverlay, els.reviewButton);
+  else if (overlay === els.studioOverlay) hideDialog(els.studioOverlay, els.studioButton);
   else if (overlay === els.extensionsOverlay) hideDialog(els.extensionsOverlay, els.brandMenuButton);
   else if (overlay === els.diagnosticsOverlay) hideDialog(els.diagnosticsOverlay, els.more);
   else if (overlay === els.authOverlay) hideDialog(els.authOverlay, els.brandMenuButton);
@@ -788,9 +800,29 @@ function renderTaskModels() {
   els.taskModel.value = state.models.some((model) => model.model === selected) ? selected : "";
 }
 
+function renderTaskTemplates() {
+  const selected = els.taskTemplate.value;
+  els.taskTemplate.replaceChildren(new Option("Start without a template", ""));
+  for (const template of state.creation.templates || []) {
+    els.taskTemplate.add(new Option(`${template.name}${template.builtin ? " · built in" : ""}`, template.id));
+  }
+  els.taskTemplate.value = state.creation.templates.some((template) => template.id === selected) ? selected : "";
+}
+
+function applyTaskTemplate(template) {
+  if (!template) return;
+  els.taskPrompt.value = template.prompt;
+  els.taskIsolation.value = template.isolation;
+  els.taskBaseRef.value = template.baseRef || "HEAD";
+  els.taskBaseRef.disabled = template.isolation !== "worktree";
+  els.taskEffort.value = template.effort || "";
+  if (template.model && [...els.taskModel.options].some((option) => option.value === template.model)) els.taskModel.value = template.model;
+}
+
 async function openTasks() {
   if (!els.taskRepository.value && state.activeThread?.cwd) els.taskRepository.value = state.activeThread.cwd;
   renderTaskModels();
+  renderTaskTemplates();
   renderTasks();
   showDialog(els.tasksOverlay, els.taskPrompt);
   try {
@@ -819,6 +851,333 @@ async function queueBackgroundTask() {
   } finally {
     els.queueTask.disabled = false;
   }
+}
+
+function setStudioTab(name) {
+  state.studioTab = ["canvas", "search", "templates", "voice"].includes(name) ? name : "canvas";
+  const views = { canvas: els.studioCanvas, search: els.studioSearch, templates: els.studioTemplates, voice: els.studioVoice };
+  for (const tab of els.studioTabs.querySelectorAll("[data-studio-tab]")) {
+    const active = tab.dataset.studioTab === state.studioTab;
+    tab.setAttribute("aria-selected", String(active));
+    tab.tabIndex = active ? 0 : -1;
+  }
+  for (const [viewName, view] of Object.entries(views)) view.hidden = viewName !== state.studioTab;
+  if (state.studioTab === "voice") void loadVoiceCapability();
+}
+
+function artifactDate(timestamp) {
+  return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+}
+
+function selectedArtifact() {
+  return state.creation.artifacts.find((artifact) => artifact.id === state.selectedArtifactId) || null;
+}
+
+function renderArtifactPreview() {
+  const body = els.artifactBody.value;
+  if (window.RichText) {
+    els.artifactPreview.innerHTML = window.RichText.render(body);
+    window.RichText.highlight(els.artifactPreview);
+  } else els.artifactPreview.textContent = body;
+}
+
+function editArtifact(artifact = null) {
+  state.selectedArtifactId = artifact?.id || null;
+  els.artifactEmpty.hidden = true;
+  els.artifactForm.hidden = false;
+  els.artifactTitle.value = artifact?.title || "";
+  els.artifactKind.value = artifact?.kind || "plan";
+  els.artifactBody.value = artifact?.body || "";
+  renderArtifactPreview();
+  renderCreation();
+  requestAnimationFrame(() => els.artifactTitle.focus());
+}
+
+function renderCreation() {
+  renderTaskTemplates();
+  els.artifactList.replaceChildren();
+  for (const artifact of state.creation.artifacts || []) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.classList.toggle("active", artifact.id === state.selectedArtifactId);
+    button.setAttribute("role", "listitem");
+    const title = document.createElement("strong");
+    title.textContent = artifact.title;
+    const meta = document.createElement("span");
+    meta.textContent = `${artifact.kind} · ${artifactDate(artifact.updatedAt)}`;
+    button.append(title, meta);
+    button.addEventListener("click", () => editArtifact(artifact));
+    els.artifactList.append(button);
+  }
+  if (!els.artifactList.childElementCount) {
+    const empty = document.createElement("p");
+    empty.className = "empty-list";
+    empty.textContent = "No Canvas artifacts yet.";
+    els.artifactList.append(empty);
+  }
+  const current = selectedArtifact();
+  if (current && !els.artifactForm.hidden && document.activeElement !== els.artifactTitle && document.activeElement !== els.artifactBody) {
+    els.artifactTitle.value = current.title;
+    els.artifactKind.value = current.kind;
+    els.artifactBody.value = current.body;
+    renderArtifactPreview();
+  }
+  if (!current && els.artifactForm.hidden) els.artifactEmpty.hidden = false;
+
+  els.templateList.replaceChildren();
+  for (const template of state.creation.templates || []) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.classList.toggle("active", template.id === state.selectedTemplateId);
+    button.setAttribute("role", "listitem");
+    const title = document.createElement("strong");
+    title.textContent = template.name;
+    const meta = document.createElement("span");
+    meta.textContent = `${template.builtin ? "built in" : "custom"} · ${template.isolation}`;
+    button.append(title, meta);
+    button.addEventListener("click", () => editTemplate(template));
+    els.templateList.append(button);
+  }
+}
+
+async function saveCurrentArtifact() {
+  const title = els.artifactTitle.value.trim() || "Untitled artifact";
+  state.creation = await api.saveArtifact({
+    id: state.selectedArtifactId,
+    title,
+    kind: els.artifactKind.value,
+    body: els.artifactBody.value,
+    repository: state.activeThread?.cwd || null,
+  });
+  const saved = state.selectedArtifactId
+    ? state.creation.artifacts.find((artifact) => artifact.id === state.selectedArtifactId)
+    : state.creation.artifacts[0];
+  state.selectedArtifactId = saved?.id || null;
+  els.studioStatus.textContent = "Artifact saved locally";
+  renderCreation();
+  return saved;
+}
+
+function editTemplate(template = null) {
+  state.selectedTemplateId = template?.id || null;
+  els.templateId.value = template?.builtin ? "" : template?.id || "";
+  els.templateName.value = template?.name || "";
+  els.templateDescription.value = template?.description || "";
+  els.templatePrompt.value = template?.prompt || "";
+  els.templateIsolation.value = template?.isolation || "worktree";
+  els.templateBaseRef.value = template?.baseRef || "HEAD";
+  els.templateEffort.value = template?.effort || "";
+  els.deleteTemplate.hidden = !template || template.builtin;
+  for (const button of els.templateList.querySelectorAll("button")) button.classList.toggle("active", button.querySelector("strong")?.textContent === template?.name);
+  requestAnimationFrame(() => els.templateName.focus());
+}
+
+function searchResultCard(result) {
+  const card = document.createElement("article");
+  card.className = "workspace-search-result";
+  card.setAttribute("role", "listitem");
+  const kind = document.createElement("span");
+  kind.className = "result-kind";
+  kind.textContent = result.kind;
+  const main = document.createElement("div");
+  const title = document.createElement("strong");
+  title.textContent = result.title;
+  const detail = document.createElement("p");
+  detail.textContent = result.detail;
+  main.append(title, detail);
+  const open = document.createElement("button");
+  open.type = "button";
+  open.className = "secondary-button";
+  open.textContent = result.kind === "file" ? "Show file" : "Open";
+  open.addEventListener("click", async () => {
+    if (result.kind === "thread" && result.threadId) {
+      hideDialog(els.studioOverlay, els.studioButton);
+      await resumeThread(result.threadId);
+    } else if (result.kind === "task") {
+      const task = state.tasks.tasks.find((entry) => entry.id === result.taskId);
+      if (task?.threadId) {
+        hideDialog(els.studioOverlay, els.studioButton);
+        await resumeThread(task.threadId);
+      } else {
+        hideDialog(els.studioOverlay, els.studioButton);
+        await openTasks();
+      }
+    } else if (result.kind === "artifact") {
+      const artifact = state.creation.artifacts.find((entry) => entry.id === result.artifactId);
+      if (artifact) { setStudioTab("canvas"); editArtifact(artifact); }
+    } else if (result.kind === "file") await api.showSearchFile({ repository: result.repository, relativePath: result.relativePath });
+  });
+  card.append(kind, main, open);
+  return card;
+}
+
+async function runWorkspaceSearch() {
+  const query = els.workspaceSearchInput.value.trim();
+  els.workspaceSearchButton.disabled = true;
+  els.workspaceSearchSummary.textContent = "Searching local work…";
+  try {
+    state.searchResults = await api.searchWorkspace({ query, repository: state.activeThread?.cwd || null });
+    els.workspaceSearchResults.replaceChildren();
+    for (const result of state.searchResults) els.workspaceSearchResults.append(searchResultCard(result));
+    if (!state.searchResults.length) {
+      const empty = document.createElement("p");
+      empty.className = "empty-list";
+      empty.textContent = "No matching local work was found.";
+      els.workspaceSearchResults.append(empty);
+    }
+    const countByKind = new Map();
+    for (const result of state.searchResults) countByKind.set(result.kind, (countByKind.get(result.kind) || 0) + 1);
+    const counts = [...countByKind].map(([kind, count]) => `${count} ${kind}${count === 1 ? "" : "s"}`);
+    els.workspaceSearchSummary.textContent = counts.length ? `${state.searchResults.length} results · ${counts.join(" · ")}` : "No results.";
+  } finally {
+    els.workspaceSearchButton.disabled = false;
+  }
+}
+
+async function openStudio(tab = state.studioTab) {
+  setStudioTab(tab);
+  renderCreation();
+  showDialog(els.studioOverlay, tab === "search" ? els.workspaceSearchInput : els.closeStudio);
+  try {
+    state.creation = await api.creationState();
+    renderCreation();
+    if (tab === "voice") await loadVoiceCapability();
+  } catch (error) { showError(error); }
+}
+
+function renderVoice() {
+  const available = Boolean(state.voiceCapability?.available && state.activeThread && state.account && state.connected && !state.activeTurnId);
+  const active = Boolean(voiceCapture.mode);
+  els.dictation.disabled = !available;
+  els.studioDictation.disabled = !available || active;
+  els.voiceConversation.disabled = !available || active;
+  els.voiceSelect.disabled = !available || active;
+  els.stopVoice.hidden = !active;
+  els.voiceOrb.classList.toggle("active", active);
+  els.dictation.classList.toggle("voice-active", active);
+  els.dictation.setAttribute("aria-label", active ? "Stop voice" : "Start voice dictation");
+  els.dictation.title = available ? (active ? "Stop voice" : "Start voice dictation") : state.voiceCapability?.reason || "Realtime voice is unavailable";
+  if (!state.voiceCapability?.available) {
+    els.voiceTitle.textContent = "Voice is unavailable";
+    els.voiceDescription.textContent = state.voiceCapability?.reason || "This installed Codex CLI does not advertise the realtime voice interface.";
+  } else {
+    els.voiceTitle.textContent = active ? (voiceCapture.mode === "dictation" ? "Listening for dictation" : "Voice conversation active") : "Talk through the work";
+    els.voiceDescription.textContent = state.voiceCapability.experimental
+      ? "Realtime voice is experimental and depends on your Codex account, rollout, and workspace settings."
+      : "Voice is ready.";
+  }
+}
+
+async function loadVoiceCapability() {
+  try {
+    state.voiceCapability = await api.voiceState();
+    const selected = els.voiceSelect.value;
+    els.voiceSelect.replaceChildren();
+    for (const voice of state.voiceCapability.voices || []) els.voiceSelect.add(new Option(voice[0].toUpperCase() + voice.slice(1), voice));
+    els.voiceSelect.value = (state.voiceCapability.voices || []).includes(selected) ? selected : state.voiceCapability.defaultVoice || state.voiceCapability.voices?.[0] || "";
+  } catch (error) {
+    state.voiceCapability = { available: false, reason: error.message };
+  }
+  renderVoice();
+}
+
+function pcmBase64(samples) {
+  const bytes = new Uint8Array(samples.length * 2);
+  const view = new DataView(bytes.buffer);
+  for (let index = 0; index < samples.length; index += 1) {
+    const sample = Math.max(-1, Math.min(1, samples[index]));
+    view.setInt16(index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+  }
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  return btoa(binary);
+}
+
+async function startVoiceCapture(mode) {
+  if (!state.activeThread || voiceCapture.mode) return;
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+  try {
+    await api.startVoice({ threadId: state.activeThread.id, mode, voice: mode === "conversation" ? els.voiceSelect.value || null : null });
+    const context = new AudioContext();
+    const source = context.createMediaStreamSource(stream);
+    const processor = context.createScriptProcessor(4096, 1, 1);
+    const silent = context.createGain();
+    silent.gain.value = 0;
+    voiceCapture.stream = stream;
+    voiceCapture.context = context;
+    voiceCapture.source = source;
+    voiceCapture.processor = processor;
+    voiceCapture.mode = mode;
+    voiceCapture.transcript = "";
+    voiceCapture.basePrompt = els.prompt.value.trim();
+    voiceCapture.chunkQueue = Promise.resolve();
+    voiceCapture.playbackAt = context.currentTime;
+    processor.onaudioprocess = (event) => {
+      if (!voiceCapture.mode || !state.activeThread) return;
+      const samples = new Float32Array(event.inputBuffer.getChannelData(0));
+      const payload = { threadId: state.activeThread.id, audio: { data: pcmBase64(samples), sampleRate: context.sampleRate, numChannels: 1, samplesPerChannel: samples.length } };
+      voiceCapture.chunkQueue = voiceCapture.chunkQueue.then(() => api.appendVoiceAudio(payload)).catch((error) => {
+        showError(error);
+        void stopVoiceCapture({ notifyServer: false });
+      });
+    };
+    source.connect(processor);
+    processor.connect(silent);
+    silent.connect(context.destination);
+    els.voiceTranscript.textContent = mode === "dictation" ? "Listening… your transcript will appear here." : "Conversation started. Speak naturally to coordinate the work.";
+    renderVoice();
+  } catch (error) {
+    for (const track of stream.getTracks()) track.stop();
+    throw error;
+  }
+}
+
+async function stopVoiceCapture({ notifyServer = true } = {}) {
+  const threadId = state.activeThread?.id;
+  voiceCapture.processor?.disconnect();
+  voiceCapture.source?.disconnect();
+  for (const track of voiceCapture.stream?.getTracks() || []) track.stop();
+  await voiceCapture.chunkQueue.catch(() => {});
+  if (notifyServer && threadId) await api.stopVoice(threadId).catch(showError);
+  await voiceCapture.context?.close().catch(() => {});
+  voiceCapture.stream = null;
+  voiceCapture.context = null;
+  voiceCapture.source = null;
+  voiceCapture.processor = null;
+  voiceCapture.mode = null;
+  els.voiceTranscript.textContent = voiceCapture.transcript || "Voice session ended.";
+  renderVoice();
+  if (!els.prompt.disabled && voiceCapture.transcript) els.prompt.focus();
+}
+
+function acceptRealtimeTranscript(event) {
+  if (!voiceCapture.mode || event.threadId !== state.activeThread?.id || event.role !== "user") return;
+  voiceCapture.transcript = event.phase === "done" ? event.text : `${voiceCapture.transcript}${event.text}`;
+  els.voiceTranscript.textContent = voiceCapture.transcript || "Listening…";
+  if (voiceCapture.mode === "dictation") {
+    els.prompt.value = [voiceCapture.basePrompt, voiceCapture.transcript].filter(Boolean).join(voiceCapture.basePrompt ? "\n" : "");
+    els.prompt.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+}
+
+function playRealtimeAudio(audio) {
+  const context = voiceCapture.context;
+  if (!context || voiceCapture.mode !== "conversation") return;
+  const binary = atob(audio.data);
+  const view = new DataView(Uint8Array.from(binary, (character) => character.charCodeAt(0)).buffer);
+  const frames = Math.floor(view.byteLength / 2 / audio.numChannels);
+  if (!frames) return;
+  const buffer = context.createBuffer(audio.numChannels, frames, audio.sampleRate);
+  for (let channel = 0; channel < audio.numChannels; channel += 1) {
+    const output = buffer.getChannelData(channel);
+    for (let frame = 0; frame < frames; frame += 1) output[frame] = view.getInt16((frame * audio.numChannels + channel) * 2, true) / 0x8000;
+  }
+  const source = context.createBufferSource();
+  source.buffer = buffer;
+  source.connect(context.destination);
+  const startAt = Math.max(context.currentTime + 0.02, voiceCapture.playbackAt);
+  source.start(startAt);
+  voiceCapture.playbackAt = startAt + buffer.duration;
 }
 
 function reviewEmpty(container, message) {
@@ -1210,6 +1569,7 @@ function setActiveThread(thread, turns = []) {
 }
 
 async function showHome() {
+  if (voiceCapture.mode) await stopVoiceCapture();
   try { await api.showHome(); }
   catch (error) { showError(error); return; }
   state.activeThread = null; state.turns = []; state.activeTurnId = null; state.diff = ""; state.git = null; state.gitDiffs = { working: "", staged: "" }; state.gitSelection = null; state.gitFileDiff = ""; state.attachments = [];
@@ -1358,6 +1718,7 @@ async function commitStaged() {
 function updateComposer() {
   const canType = state.connected && Boolean(state.account) && Boolean(state.activeThread) && !state.activeTurnId;
   els.prompt.disabled = !canType; els.send.disabled = !canType || (!els.prompt.value.trim() && !state.attachments.length); els.send.hidden = Boolean(state.activeTurnId); els.stop.hidden = !state.activeTurnId;
+  renderVoice();
 }
 
 function formatBytes(bytes) { if (bytes < 1024) return `${bytes} B`; if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`; return `${(bytes / 1024 / 1024).toFixed(1)} MB`; }
@@ -1605,7 +1966,13 @@ async function chooseAndStartThread(initialPrompt = "") {
   const response = await api.startThread({ cwd, model: els.model.value, approvalPolicy: "on-request", sandbox: "workspace-write" }); setActiveThread(response.thread, response.thread.turns || []);
   if (initialPrompt) { els.prompt.value = initialPrompt; updateComposer(); await sendTurn(); } else els.prompt.focus(); await refreshThreads();
 }
-async function resumeThread(threadId) { try { const response = await api.resumeThread(threadId); setActiveThread(response.thread, response.thread.turns || []); } catch (error) { showError(error); } }
+async function resumeThread(threadId) {
+  try {
+    if (voiceCapture.mode && threadId !== state.activeThread?.id) await stopVoiceCapture();
+    const response = await api.resumeThread(threadId);
+    setActiveThread(response.thread, response.thread.turns || []);
+  } catch (error) { showError(error); }
+}
 async function refreshThreads() { try { const response = await api.listThreads({}); state.threads = response.data; renderThreads(); } catch (error) { showError(error); } }
 async function sendTurn() {
   const text = els.prompt.value.trim(), attachments = [...state.attachments]; if ((!text && !attachments.length) || !state.activeThread || state.activeTurnId) return;
@@ -1900,7 +2267,8 @@ async function bootstrap() {
 }
 
 function applyBootstrap(result) {
-  state.threads = result.threads; state.models = result.models; state.cli = result.cli || state.cli; state.compatibility = result.compatibility || state.compatibility; state.desktop = result.desktop || state.desktop; state.updates = result.updates || state.updates; state.tasks = result.tasks || state.tasks; setConnection(true); renderAccount(result.account); renderModels(); renderThreads(); renderDesktopPreferences(); renderUpdateState(); renderTasks();
+  state.threads = result.threads; state.models = result.models; state.cli = result.cli || state.cli; state.compatibility = result.compatibility || state.compatibility; state.desktop = result.desktop || state.desktop; state.updates = result.updates || state.updates; state.tasks = result.tasks || state.tasks; state.creation = result.creation || state.creation; setConnection(true); renderAccount(result.account); renderModels(); renderThreads(); renderDesktopPreferences(); renderUpdateState(); renderTasks(); renderCreation();
+  void loadVoiceCapability();
   void flushPendingDeepLinks();
 }
 
@@ -1931,12 +2299,41 @@ api.onEvent(async (event) => {
   else if (event.kind === "desktopPreferences") { state.desktop = event.desktop; renderDesktopPreferences(); }
   else if (event.kind === "updateState") { state.updates = event.updates; renderUpdateState(); }
   else if (event.kind === "tasksState") { state.tasks = event.tasks; renderTasks(); }
+  else if (event.kind === "creationState") { state.creation = event.creation; renderCreation(); }
+  else if (event.kind === "realtimeTranscript") acceptRealtimeTranscript(event);
+  else if (event.kind === "realtimeAudio") playRealtimeAudio(event.audio);
+  else if (event.kind === "realtimeState") {
+    if (event.phase === "error") { showError(new Error(event.error || "Realtime voice stopped")); void stopVoiceCapture({ notifyServer: false }); }
+    else if (event.phase === "closed" && voiceCapture.mode) void stopVoiceCapture({ notifyServer: false });
+  }
   else if (event.kind === "captureReview") {
     state.activeThread = event.thread;
     state.review = event.snapshot;
     state.reviewTab = "changes";
     renderReview();
     showDialog(els.reviewOverlay, els.closeReview);
+  }
+  else if (event.kind === "captureStudio") {
+    state.activeThread = event.thread;
+    state.creation = event.creation;
+    state.voiceCapability = event.voiceCapability;
+    state.searchResults = event.searchResults || [];
+    renderCreation();
+    setStudioTab(event.tab || "canvas");
+    if (event.tab === "canvas" && state.creation.artifacts[0]) editArtifact(state.creation.artifacts[0]);
+    if (event.tab === "templates" && state.creation.templates[1]) editTemplate(state.creation.templates[1]);
+    if (event.tab === "search") {
+      els.workspaceSearchInput.value = "creation";
+      els.workspaceSearchResults.replaceChildren();
+      for (const result of state.searchResults) els.workspaceSearchResults.append(searchResultCard(result));
+      els.workspaceSearchSummary.textContent = `${state.searchResults.length} results · 1 thread · 1 task · 1 artifact · 1 file`;
+    }
+    if (event.tab === "voice") {
+      els.voiceSelect.replaceChildren(...event.voiceCapability.voices.map((voice) => new Option(voice[0].toUpperCase() + voice.slice(1), voice)));
+      els.voiceSelect.value = event.voiceCapability.defaultVoice;
+      renderVoice();
+    }
+    showDialog(els.studioOverlay, els.closeStudio);
   }
   else if (event.kind === "quickPrompt") { if (state.activeThread) { els.prompt.value = event.text; updateComposer(); els.prompt.focus(); } else chooseAndStartThread(event.text).catch(showError); }
   else if (event.kind === "log" && /error/i.test(event.message)) console.warn(event.message);
@@ -2100,11 +2497,26 @@ els.settings.addEventListener("click", () => {
 els.extensions.addEventListener("click", openExtensions);
 els.tasksButton.addEventListener("click", openTasks);
 els.reviewButton.addEventListener("click", openReview);
+els.studioButton.addEventListener("click", () => openStudio().catch(showError));
 els.home.addEventListener("click", showHome);
 els.closeAuth.addEventListener("click", () => hideDialog(els.authOverlay, els.brandMenuButton));
 els.closeExtensions.addEventListener("click", () => hideDialog(els.extensionsOverlay, els.brandMenuButton));
 els.closeTasks.addEventListener("click", () => hideDialog(els.tasksOverlay, els.tasksButton));
 els.closeReview.addEventListener("click", () => hideDialog(els.reviewOverlay, els.reviewButton));
+els.closeStudio.addEventListener("click", () => hideDialog(els.studioOverlay, els.studioButton));
+for (const tab of els.studioTabs.querySelectorAll("[data-studio-tab]")) tab.addEventListener("click", () => setStudioTab(tab.dataset.studioTab));
+els.studioTabs.addEventListener("keydown", (event) => {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key) || !event.target.matches("[data-studio-tab]")) return;
+  const tabs = [...els.studioTabs.querySelectorAll("[data-studio-tab]")];
+  const current = Math.max(0, tabs.indexOf(event.target));
+  const target = event.key === "Home" ? 0
+    : event.key === "End" ? tabs.length - 1
+      : event.key === "ArrowRight" ? (current + 1) % tabs.length
+        : (current - 1 + tabs.length) % tabs.length;
+  event.preventDefault();
+  tabs[target].focus();
+  tabs[target].click();
+});
 els.refreshReview.addEventListener("click", () => loadReview({ forceGitHub: true }));
 for (const tab of els.reviewTabs.querySelectorAll("[data-review-tab]")) tab.addEventListener("click", () => setReviewTab(tab.dataset.reviewTab));
 els.reviewTabs.addEventListener("keydown", (event) => {
@@ -2185,6 +2597,112 @@ els.reviewPrForm.addEventListener("submit", async (event) => {
 });
 els.copyTaskSummary.addEventListener("click", async () => { try { await api.copyTaskSummary(); toast("Redacted task summary copied"); } catch (error) { showError(error); } });
 els.copyShareableDiagnostics.addEventListener("click", async () => { try { await api.copyShareableDiagnostics(); toast("Shareable diagnostics copied"); } catch (error) { showError(error); } });
+for (const button of [els.newArtifact, els.newArtifactEmpty]) button.addEventListener("click", () => editArtifact());
+els.artifactBody.addEventListener("input", renderArtifactPreview);
+els.artifactForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  els.saveArtifact.disabled = true;
+  try { await saveCurrentArtifact(); toast("Artifact saved locally"); }
+  catch (error) { showError(error); }
+  finally { els.saveArtifact.disabled = false; }
+});
+els.attachArtifact.addEventListener("click", async () => {
+  els.attachArtifact.disabled = true;
+  try {
+    const artifact = await saveCurrentArtifact();
+    if (!artifact) return;
+    addAttachments([await api.attachArtifact(artifact.id)]);
+    hideDialog(els.studioOverlay, els.studioButton);
+    els.prompt.focus();
+    toast("Artifact attached to the prompt");
+  } catch (error) { showError(error); }
+  finally { els.attachArtifact.disabled = false; }
+});
+els.exportArtifact.addEventListener("click", async () => {
+  els.exportArtifact.disabled = true;
+  try {
+    const artifact = await saveCurrentArtifact();
+    const filePath = artifact ? await api.exportArtifact(artifact.id) : null;
+    if (filePath) toast(`Artifact exported to ${filePath}`);
+  } catch (error) { showError(error); }
+  finally { els.exportArtifact.disabled = false; }
+});
+els.deleteArtifact.addEventListener("click", async () => {
+  if (!state.selectedArtifactId) return;
+  els.deleteArtifact.disabled = true;
+  try {
+    const result = await api.deleteArtifact(state.selectedArtifactId);
+    state.creation = result.creation;
+    if (!result.cancelled) {
+      state.selectedArtifactId = null;
+      els.artifactForm.hidden = true;
+      els.artifactEmpty.hidden = false;
+      toast("Artifact deleted");
+    }
+    renderCreation();
+  } catch (error) { showError(error); }
+  finally { els.deleteArtifact.disabled = false; }
+});
+els.workspaceSearchForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  runWorkspaceSearch().catch(showError);
+});
+els.newTemplate.addEventListener("click", () => editTemplate());
+els.templateForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = event.submitter;
+  button.disabled = true;
+  try {
+    const currentId = els.templateId.value || null;
+    state.creation = await api.saveTaskTemplate({
+      id: currentId,
+      name: els.templateName.value,
+      description: els.templateDescription.value,
+      prompt: els.templatePrompt.value,
+      isolation: els.templateIsolation.value,
+      baseRef: els.templateBaseRef.value || "HEAD",
+      effort: els.templateEffort.value || null,
+    });
+    const saved = currentId
+      ? state.creation.templates.find((template) => template.id === currentId)
+      : state.creation.templates.find((template) => !template.builtin && template.name === els.templateName.value.trim());
+    editTemplate(saved || null);
+    renderCreation();
+    toast("Task template saved");
+  } catch (error) { showError(error); }
+  finally { button.disabled = false; }
+});
+els.deleteTemplate.addEventListener("click", async () => {
+  if (!state.selectedTemplateId) return;
+  els.deleteTemplate.disabled = true;
+  try {
+    const result = await api.deleteTaskTemplate(state.selectedTemplateId);
+    state.creation = result.creation;
+    if (!result.cancelled) { editTemplate(); toast("Task template deleted"); }
+    renderCreation();
+  } catch (error) { showError(error); }
+  finally { els.deleteTemplate.disabled = false; }
+});
+els.applyTaskTemplate.addEventListener("click", () => {
+  const template = state.creation.templates.find((entry) => entry.id === els.taskTemplate.value);
+  if (template) { applyTaskTemplate(template); toast(`Applied ${template.name}`); }
+});
+els.saveTaskTemplate.addEventListener("click", async () => {
+  hideDialog(els.tasksOverlay, els.tasksButton);
+  await openStudio("templates");
+  editTemplate({
+    name: els.taskTitle.value || "Repository workflow",
+    description: "",
+    prompt: els.taskPrompt.value,
+    isolation: els.taskIsolation.value,
+    baseRef: els.taskBaseRef.value || "HEAD",
+    effort: els.taskEffort.value || null,
+  });
+});
+els.dictation.addEventListener("click", () => (voiceCapture.mode ? stopVoiceCapture() : startVoiceCapture("dictation")).catch(showError));
+els.studioDictation.addEventListener("click", () => startVoiceCapture("dictation").catch(showError));
+els.voiceConversation.addEventListener("click", () => startVoiceCapture("conversation").catch(showError));
+els.stopVoice.addEventListener("click", () => stopVoiceCapture().catch(showError));
 els.refreshExtensions.addEventListener("click", () => loadExtensions({ forceReload: true }));
 els.chooseTaskRepository.addEventListener("click", async () => {
   try {
@@ -2224,7 +2742,7 @@ els.more.addEventListener("click", openDiagnostics); els.closeDiagnostics.addEve
 els.copyDiagnostics.addEventListener("click", async () => { try { await api.copyDiagnostics(); toast("Diagnostics copied"); } catch (error) { showError(error); } });
 els.exportDiagnostics.addEventListener("click", async () => { try { const filePath = await api.exportDiagnostics(); if (filePath) toast(`Diagnostics exported to ${filePath}`); } catch (error) { showError(error); } });
 els.showLog.addEventListener("click", () => api.showLogFile().catch(showError));
-for (const overlay of [els.tasksOverlay, els.reviewOverlay, els.authOverlay, els.extensionsOverlay, els.screenshotOverlay, els.cameraOverlay, els.diagnosticsOverlay]) {
+for (const overlay of [els.tasksOverlay, els.reviewOverlay, els.studioOverlay, els.authOverlay, els.extensionsOverlay, els.screenshotOverlay, els.cameraOverlay, els.diagnosticsOverlay]) {
   overlay.addEventListener("click", closeOnBackdropClick);
 }
 document.addEventListener("click", (event) => {
@@ -2247,6 +2765,7 @@ document.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "j") { event.preventDefault(); openTerminal(); }
   if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "b") { event.preventDefault(); openTasks(); }
   if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "r") { event.preventDefault(); openReview(); }
+  if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "f") { event.preventDefault(); openStudio("search").catch(showError); }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); els.threadSearch.focus(); els.threadSearch.select(); }
   if ((event.ctrlKey || event.metaKey) && event.key === ",") { event.preventDefault(); openAuth(); }
   if (event.altKey && event.key === "ArrowLeft" && state.activeThread) { event.preventDefault(); showHome(); }
