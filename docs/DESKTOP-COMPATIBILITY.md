@@ -48,8 +48,12 @@ On 2026-07-29, a maintainer completed the Debian install lifecycle for version 0
 - Closing the main window retained the tray process, and `Ctrl+Shift+Space` opened the quick-prompt window.
 - File attachment, full-screen capture, region capture, camera preview, and still-image attachment completed successfully.
 - GNOME displayed an explicit application-branded notification test.
+- At 150% text with reduced motion and high contrast enabled, primary views and dialogs remained readable, navigable, scrollable, and free of overlapping controls.
+- `Tab`, `Shift+Tab`, `F6`, and `Escape` preserved visible focus, cycled primary work areas, closed the active dialog, and restored focus to its trigger.
+- With Orca and in-app screen-reader mode enabled, primary navigation, composer, Tasks, Review, Studio, Extensions, Settings, and dialog controls exposed useful spoken names.
+- A completed turn produced one completion announcement without streaming-token chatter; a user question produced one decision announcement, and dismissing it restored focus correctly.
 
-This records the installed-package, launcher, deep-link, removal, reinstall, tray, shortcut, attachment, portal, camera, and desktop-notification-substrate portions of the GNOME/Wayland Debian check. It does not replace the remaining manual in-app completion/approval notification, keyboard, visual-mode, or spoken Orca checks required for that row.
+This records the installed-package, launcher, deep-link, removal, reinstall, tray, shortcut, attachment, portal, camera, desktop-notification-substrate, keyboard, focus, visual-mode, and spoken Orca portions of the GNOME/Wayland Debian check. It does not replace the remaining manual in-app desktop completion/approval notification check required for that row, or any AppImage, Snap, GNOME/X11, or KDE row.
 
 ## Release-candidate desktop matrix
 
