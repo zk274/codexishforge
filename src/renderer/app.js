@@ -1751,7 +1751,8 @@ async function commitStaged() {
   catch (error) { showError(error); }
 }
 function updateComposer() {
-  const canType = state.connected && Boolean(state.account) && Boolean(state.activeThread) && !state.activeTurnId;
+  const canType = state.connected && Boolean(state.account) && !state.activeTurnId;
+  els.prompt.placeholder = state.activeThread ? "Ask Codex to work on this project…" : "Ask Codex, then choose a project…";
   els.prompt.disabled = !canType; els.send.disabled = !canType || (!els.prompt.value.trim() && !state.attachments.length); els.send.hidden = Boolean(state.activeTurnId); els.stop.hidden = !state.activeTurnId;
   renderVoice();
 }
@@ -1995,11 +1996,18 @@ async function showCaptureSources() {
   } catch (error) { showError(error); hideDialog(els.screenshotOverlay, els.screenshot); }
 }
 
-async function chooseAndStartThread(initialPrompt = "") {
+async function chooseAndStartThread(initialPrompt = "", initialAttachments = []) {
   if (!state.connected || !state.account) { await openAuth(); return; }
   const cwd = await api.chooseFolder(); if (!cwd) return;
   const response = await api.startThread({ cwd, model: els.model.value, approvalPolicy: "on-request", sandbox: "workspace-write" }); setActiveThread(response.thread, response.thread.turns || []);
-  if (initialPrompt) { els.prompt.value = initialPrompt; updateComposer(); await sendTurn(); } else els.prompt.focus(); await refreshThreads();
+  if (initialPrompt || initialAttachments.length) {
+    els.prompt.value = initialPrompt;
+    state.attachments = [...initialAttachments];
+    renderAttachments();
+    updateComposer();
+    await sendTurn();
+  } else els.prompt.focus();
+  await refreshThreads();
 }
 async function resumeThread(threadId) {
   try {
@@ -2010,7 +2018,13 @@ async function resumeThread(threadId) {
 }
 async function refreshThreads() { try { const response = await api.listThreads({}); state.threads = response.data; renderThreads(); } catch (error) { showError(error); } }
 async function sendTurn() {
-  const text = els.prompt.value.trim(), attachments = [...state.attachments]; if ((!text && !attachments.length) || !state.activeThread || state.activeTurnId) return;
+  const text = els.prompt.value.trim(), attachments = [...state.attachments];
+  if ((!text && !attachments.length) || state.activeTurnId) return;
+  if (!state.activeThread) {
+    try { await chooseAndStartThread(text, attachments); }
+    catch (error) { showError(error); }
+    return;
+  }
   els.prompt.value = ""; state.attachments = []; renderAttachments(); els.prompt.style.height = "auto"; updateComposer();
   try {
     const response = await api.sendTurn({ threadId: state.activeThread.id, text, attachments, model: els.model.value, effort: els.effort.value }); const turn = response.turn;

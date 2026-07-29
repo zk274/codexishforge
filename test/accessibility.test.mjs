@@ -49,6 +49,14 @@ test("home is centered and account settings live in an accessible brand menu", (
   assert.match(main, /Titlebar menu outside-click validation failed/);
 });
 
+test("home composer preserves a draft while choosing its project", () => {
+  assert.match(html, /id="promptInput"[^>]*placeholder="Ask Codex, then choose a project…"/);
+  assert.match(app, /const canType = state\.connected && Boolean\(state\.account\) && !state\.activeTurnId/);
+  assert.match(app, /els\.prompt\.placeholder = state\.activeThread \? "Ask Codex to work on this project…" : "Ask Codex, then choose a project…"/);
+  assert.match(app, /if \(!state\.activeThread\) \{\s+try \{ await chooseAndStartThread\(text, attachments\); \}/);
+  assert.match(app, /state\.attachments = \[\.\.\.initialAttachments\]/);
+});
+
 test("keyboard paths cover threads, tabs, region capture, and global navigation", () => {
   assert.match(app, /els\.threadList\.addEventListener\("keydown"/);
   assert.match(app, /document\.querySelector\("\.diff-tabs"\)\.addEventListener\("keydown"/);
