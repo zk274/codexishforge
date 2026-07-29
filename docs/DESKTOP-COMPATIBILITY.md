@@ -45,8 +45,11 @@ On 2026-07-29, a maintainer completed the Debian install lifecycle for version 0
 - Opening `codex-linux://open` focused the existing window without creating a second application instance.
 - Removing the package removed its executable, command alternative, launcher, icon, and URL handler while preserving per-user application data.
 - Reinstalling the same package opened normally with the previous user state intact.
+- Closing the main window retained the tray process, and `Ctrl+Shift+Space` opened the quick-prompt window.
+- File attachment, full-screen capture, region capture, camera preview, and still-image attachment completed successfully.
+- GNOME displayed an explicit application-branded notification test.
 
-This records the installed-package, launcher, deep-link, removal, and reinstall portion of the GNOME/Wayland Debian check. It does not replace the remaining manual camera, portal, notification, keyboard, visual-mode, or spoken Orca checks required for that row.
+This records the installed-package, launcher, deep-link, removal, reinstall, tray, shortcut, attachment, portal, camera, and desktop-notification-substrate portions of the GNOME/Wayland Debian check. It does not replace the remaining manual in-app completion/approval notification, keyboard, visual-mode, or spoken Orca checks required for that row.
 
 ## Release-candidate desktop matrix
 
