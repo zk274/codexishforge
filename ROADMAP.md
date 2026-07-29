@@ -57,11 +57,11 @@ Codex Linux Community is a repository-first desktop coding agent. Desktop conven
 
 ## 0.6 — Tasks, agents, and worktrees
 
-- Background task queue with clear queued, running, waiting, failed, and completed states
-- One-click isolated Git worktrees for concurrent tasks
-- Multi-agent activity view with ownership, handoffs, approvals, and resource limits
-- Durable task recovery across application and CLI restarts
-- Unified inbox for approvals, questions, completed work, and failed background processes
+- [x] Background task queue with clear queued, running, waiting, failed, and completed states
+- [x] One-click isolated Git worktrees for concurrent tasks
+- [x] Multi-agent activity view with ownership, handoffs, approvals, and resource limits
+- [x] Durable task recovery across application and CLI restarts
+- [x] Unified inbox for approvals, questions, completed work, and failed background processes
 
 ## 0.7 — Review and collaboration
 

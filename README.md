@@ -29,6 +29,11 @@ An unofficial Linux desktop client powered by the installed OpenAI Codex CLI. It
 - Preflight the installed CLI's version-specific app-server schema, blocking incompatible builds and gating unavailable optional features
 - Inspect and manage installed skills, plugins, and MCP servers from a capability-gated Extension Center
 - Check extension health and open the user, project, system, or managed configuration layer that owns a setting
+- Queue durable background tasks with explicit queued, preparing, running, waiting, failed, stopped, and completed states
+- Run concurrent tasks in managed detached Git worktrees without touching the local checkout
+- Inspect subagent ownership, handoffs, models, reasoning effort, status, and task resource usage
+- Recover active task threads after application or CLI restarts
+- Review approvals, questions, task results, failures, and background-terminal errors in one inbox
 - Collect rotating, credential-redacted diagnostics with copy/export controls
 - Detect unclean shutdowns and offer renderer crash recovery
 - Choose an available model and reasoning effort
@@ -59,7 +64,17 @@ The development launcher removes `ELECTRON_RUN_AS_NODE` because Codex-hosted she
 
 Open account settings with **Ctrl+,** to choose 100–150% text size, reduced motion, or high contrast. Codex also follows the desktop's reduced-motion, increased-contrast, and forced-color preferences.
 
-Use **Ctrl+N** for a new thread, **Ctrl+K** or **/** to search threads, **Ctrl+J** for the terminal, **Alt+Left** to return home, and **F6** to cycle through the primary work areas. Arrow keys navigate thread lists and tabs. In region capture, arrow keys move the selection and **Shift+Arrow** resizes it. Dialogs contain keyboard focus and close with **Escape**.
+Use **Ctrl+N** for a new thread, **Ctrl+K** or **/** to search threads, **Ctrl+J** for the terminal, **Ctrl+Shift+B** for background tasks, **Alt+Left** to return home, and **F6** to cycle through the primary work areas. Arrow keys navigate thread lists and tabs. In region capture, arrow keys move the selection and **Shift+Arrow** resizes it. Dialogs contain keyboard focus and close with **Escape**.
+
+## Task Center
+
+Select **Tasks** in the title bar to queue work that can continue while you use another thread. The queue runs at most two top-level tasks concurrently and displays queued, preparing, running, waiting, recovering, completed, failed, and stopped states. Requests and results also appear in the unified inbox.
+
+**Isolated worktree** is the default. The app creates a detached checkout beneath its private user-data directory from the selected Git revision, then starts a separate persisted Codex thread in that directory. The local checkout and its uncommitted changes are not copied or modified. Choose **Local checkout** only when intentional shared-file access is appropriate.
+
+Task metadata is written atomically to a mode-`0600` local JSON file. On restart, queued tasks return to the queue and active tasks resume their saved Codex threads. Managed worktrees are retained for inspection and reuse; the Task Center can open them directly.
+
+Subagent activity comes from Codex’s structured collaboration items. The interface shows ownership, status, handoffs, selected model and reasoning effort when available, while Codex remains responsible for spawning, steering, limits, and sandbox inheritance.
 
 ## Extension Center
 
@@ -97,7 +112,7 @@ Packages are written to `dist/`. The build produces an AppImage, a `.deb` instal
 Classic confinement is intentional: Codex must open user-selected repositories and launch the host CLI. Install a local Snap build with:
 
 ```bash
-sudo snap install --classic --dangerous "dist/Codex Linux Community-0.5.0-amd64.snap"
+sudo snap install --classic --dangerous "dist/Codex Linux Community-0.6.0-amd64.snap"
 ```
 
 Publishing a classic snap in the Snap Store requires a confinement review.
@@ -112,17 +127,17 @@ Release builds generate update metadata with SHA-512 artifact hashes. Stable ver
 
 The renderer is a dependency-free HTML/CSS/JavaScript interface running with Electron context isolation, Node integration disabled, renderer sandboxing enabled, and a restrictive content security policy. A narrow preload bridge sends validated desktop actions to the main process.
 
-Before connecting, the main process asks the installed CLI to generate its version-specific app-server schema and checks the methods needed for core threads, authentication, approvals, change streaming, and terminals. Incompatible core protocols stop with upgrade guidance; partial protocols keep supported workflows available. It then starts `codex app-server --stdio`, performs the required `initialize`/`initialized` handshake, and communicates through the line-delimited JSON protocol. Credentials remain owned by the Codex CLI; the desktop app does not collect or store them.
+Before connecting, the main process asks the installed CLI to generate its version-specific app-server schema and checks the methods needed for core threads, authentication, approvals, change streaming, and terminals. Incompatible core protocols stop with upgrade guidance; partial protocols keep supported workflows available. It then starts `codex app-server --stdio`, performs the required `initialize`/`initialized` handshake, and communicates through the line-delimited JSON protocol. Background tasks use the same structured thread, turn, request, status, and collaboration events. Credentials remain owned by the Codex CLI; the desktop app does not collect or store them.
 
 Open the **•••** menu for diagnostics. Reports include runtime and compatibility state plus recent structured events. Authorization headers, API keys, tokens, passwords, secrets, and OAuth query values are redacted before logs are written. Logs rotate under the application's user-data directory.
 
 ## Current scope
 
-This is an early desktop client built on the CLI's experimental app-server protocol. Core local coding, Git, and extension-control workflows are present, but cloud task management, voice/realtime mode, public plugin browsing and installation, and Canvas-style editing are not yet exposed. Unknown server requests are rejected safely instead of being guessed. See [ROADMAP.md](ROADMAP.md) for the next desktop-focused milestones.
+This is an early desktop client built on the CLI's experimental app-server protocol. Core local coding, Git, extension-control, background-task, worktree, and agent-activity workflows are present, but GitHub collaboration screens, cloud task management, voice/realtime mode, public plugin browsing and installation, and Canvas-style editing are not yet exposed. Unknown server requests are rejected safely instead of being guessed. See [ROADMAP.md](ROADMAP.md) for the next desktop-focused milestones.
 
 ## Safety and privacy
 
-New threads default to `workspace-write` sandboxing and `on-request` approvals. External links are restricted to HTTPS. All model and tool activity follows the permissions, managed policy, hooks, and configuration enforced by your installed Codex CLI.
+New foreground and background threads default to `workspace-write` sandboxing and `on-request` approvals. Subagents inherit the parent task’s Codex permission boundary. External links are restricted to HTTPS. All model and tool activity follows the permissions, managed policy, hooks, and configuration enforced by your installed Codex CLI.
 
 ## License
 

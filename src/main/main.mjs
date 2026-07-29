@@ -23,6 +23,7 @@ import { resolveCodexCommand, validateCodexCommand } from "./codex-locator.mjs";
 import { GitService } from "./git-service.mjs";
 import { inspectCodexProtocol, unknownProtocolCompatibility } from "./protocol-compatibility.mjs";
 import { StructuredLogger } from "./structured-logger.mjs";
+import { TaskStore } from "./task-service.mjs";
 import { createTrayIconPng } from "./tray-icon.mjs";
 import { UpdateService, detectLinuxPackageType, normalizeUpdatePreferences } from "./update-service.mjs";
 import {
@@ -61,6 +62,10 @@ let autostart = null;
 let updateService = null;
 let updateCheckTimer = null;
 let updateCheckInterval = null;
+let taskStore = null;
+let taskPumpRunning = false;
+let taskPumpScheduled = false;
+let taskRecoveryAttempted = false;
 let deepLinkRendererReady = false;
 const pendingDeepLinkActions = [];
 const deepLinkState = {
@@ -84,6 +89,33 @@ const startedAt = Date.now();
 const execFileAsync = promisify(execFile);
 const imageExtensions = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"]);
 const git = new GitService();
+
+function taskStoragePath() {
+  return path.join(app.getPath("userData"), "tasks.json");
+}
+
+function taskWorktreeRoot() {
+  return path.join(app.getPath("userData"), "worktrees");
+}
+
+function taskSnapshot() {
+  return taskStore?.snapshot() || {
+    tasks: [],
+    inbox: [],
+    limits: { maxConcurrent: 2, active: 0, queued: 0 },
+    counts: {},
+    unread: 0,
+  };
+}
+
+function initializeTasks() {
+  taskStore = new TaskStore(taskStoragePath(), {
+    maxConcurrent: 2,
+    onChange: (tasks) => sendEvent({ kind: "tasksState", tasks }),
+  });
+  const recovered = taskStore.recoverInterrupted();
+  log(recovered.length ? "warn" : "info", "tasks.initialized", { tasks: taskStore.tasks.length, recovered: recovered.length });
+}
 
 function sendEvent(payload) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("codex:event", payload);
@@ -302,6 +334,7 @@ function activeRepository(cwd) {
 function bindClientEvents(activeClient) {
   activeClient.on("notification", (message) => {
     if (message.method === "thread/name/updated" && activeThreadContext?.id === message.params.threadId) activeThreadContext.title = message.params.name || activeThreadContext.title;
+    handleTaskNotification(message);
     sendEvent({ kind: "notification", ...message });
     if (message.method === "turn/completed") {
       const turnId = message.params.turn?.id;
@@ -312,6 +345,11 @@ function bindClientEvents(activeClient) {
   activeClient.on("serverRequest", (message) => {
     if (message.method === "currentTime/read") activeClient.respond(message.id, { currentTimeAt: Math.floor(Date.now() / 1000) });
     else {
+      const backgroundTask = taskStore?.taskForThread(message.params?.threadId);
+      if (backgroundTask) {
+        const input = ["item/tool/requestUserInput", "mcpServer/elicitation/request"].includes(message.method);
+        taskStore.waiting(backgroundTask.id, String(message.id), input ? "question" : "approval");
+      }
       sendEvent({ kind: "request", ...message });
       const requestType = ["item/tool/requestUserInput", "mcpServer/elicitation/request"].includes(message.method) ? "input" : "approval";
       showDesktopNotification("request", {
@@ -321,7 +359,14 @@ function bindClientEvents(activeClient) {
       });
     }
   });
-  activeClient.on("status", (status) => { log(status.connected ? "info" : "error", "codex.status", status); sendEvent({ kind: "status", ...status }); });
+  activeClient.on("status", (status) => {
+    if (!status.connected && taskStore) {
+      taskRecoveryAttempted = false;
+      taskStore.recoverInterrupted();
+    }
+    log(status.connected ? "info" : "error", "codex.status", status);
+    sendEvent({ kind: "status", ...status });
+  });
   activeClient.on("log", (message) => { log("warn", "codex.stderr", { message }); sendEvent({ kind: "log", message }); });
   activeClient.on("protocolError", (details) => {
     const missingMethods = [...new Set([...(compatibility.missingMethods || []), details.method])];
@@ -369,7 +414,129 @@ async function ensureConnected() {
   }
   try { await activeClient.connect(); }
   catch (error) { log("error", "codex.connect_failed", { message: error.message, code: error.code }); throw error; }
+  if (!taskRecoveryAttempted && taskStore) await recoverBackgroundTasks(activeClient);
   return activeClient;
+}
+
+function taskDirectoryName(task) {
+  const repository = path.basename(task.repository).replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 60) || "repository";
+  return `${repository}-${task.id.slice(0, 12)}`;
+}
+
+async function prepareTaskDirectory(task) {
+  if (task.isolation !== "worktree") {
+    const repository = await git.repositoryRoot(task.repository);
+    taskStore.prepare(task.id, { cwd: repository });
+    return repository;
+  }
+  if (task.worktreePath && fs.existsSync(task.worktreePath)) {
+    taskStore.prepare(task.id, { cwd: task.worktreePath, worktreePath: task.worktreePath });
+    return task.worktreePath;
+  }
+  const root = taskWorktreeRoot();
+  fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+  const destination = path.join(root, taskDirectoryName(task));
+  taskStore.prepare(task.id, { cwd: destination, worktreePath: destination });
+  const result = await git.createDetachedWorktree(task.repository, destination, {
+    ref: task.baseRef || "HEAD",
+    allowedRoot: root,
+  });
+  log("info", "tasks.worktree_created", { taskId: task.id, repository: result.repository, path: result.path, commit: result.commit });
+  return result.path;
+}
+
+async function startBackgroundTask(task) {
+  try {
+    const cwd = await prepareTaskDirectory(task);
+    if (taskStore.find(task.id)?.state === "cancelled") return;
+    const activeClient = await ensureConnected();
+    const response = await activeClient.request("thread/start", {
+      cwd,
+      model: task.model || null,
+      approvalPolicy: "on-request",
+      sandbox: "workspace-write",
+      serviceName: "codex_linux_community_background",
+      sessionStartSource: "startup",
+      threadSource: "codex-linux-community",
+    });
+    const threadId = response.thread.id;
+    taskStore.running(task.id, { threadId });
+    if (taskStore.find(task.id)?.state === "cancelled") return;
+    const turn = await activeClient.request("turn/start", {
+      threadId,
+      input: [{ type: "text", text: task.prompt, text_elements: [] }],
+      model: task.model || null,
+      effort: task.effort || null,
+    });
+    taskStore.update(task.id, { turnId: turn.turn?.id || null }, { kind: "turn", message: "The background turn is running." });
+    log("info", "tasks.started", { taskId: task.id, threadId, turnId: turn.turn?.id || null, isolation: task.isolation });
+  } catch (error) {
+    if (taskStore.find(task.id)?.state !== "recovering") taskStore.fail(task.id, error);
+    log("error", "tasks.start_failed", { taskId: task.id, message: error.message });
+  }
+}
+
+function scheduleTaskPump() {
+  if (taskPumpScheduled) return;
+  taskPumpScheduled = true;
+  setImmediate(async () => {
+    taskPumpScheduled = false;
+    if (taskPumpRunning || !taskStore) return;
+    taskPumpRunning = true;
+    try {
+      while (true) {
+        const task = taskStore.nextQueued();
+        if (!task) break;
+        await startBackgroundTask(task);
+      }
+    } finally {
+      taskPumpRunning = false;
+    }
+  });
+}
+
+async function recoverBackgroundTasks(activeClient) {
+  if (taskRecoveryAttempted || !taskStore) return;
+  taskRecoveryAttempted = true;
+  const recovering = taskStore.tasks.filter((task) => task.state === "recovering");
+  for (const task of recovering) {
+    try {
+      const response = await activeClient.request("thread/resume", { threadId: task.threadId });
+      const turn = response.thread?.turns?.at(-1) || null;
+      if (!turn) {
+        taskStore.fail(task.id, "The saved Codex thread had no turn to recover.");
+      } else if (turn.status === "inProgress") {
+        taskStore.running(task.id, { threadId: response.thread.id, turnId: turn.id });
+        taskStore.update(task.id, {}, { kind: "recovered", message: "Recovered the running task after restart." });
+      } else {
+        taskStore.finish(task.id, turn);
+      }
+    } catch (error) {
+      taskStore.fail(task.id, `The saved Codex thread could not be recovered: ${error.message}`);
+    }
+  }
+  scheduleTaskPump();
+}
+
+function handleTaskNotification(message) {
+  if (!taskStore) return;
+  const params = message.params || {};
+  if (message.method === "thread/started" && params.thread?.parentThreadId) taskStore.observeAgentThread(params.thread);
+  if (message.method === "thread/status/changed" && taskStore.taskForAgentThread(params.threadId)) {
+    taskStore.observeAgentStatus(params.threadId, params.status);
+    return;
+  }
+  const task = taskStore.taskForThread(params.threadId);
+  if (!task) return;
+  if (message.method === "thread/status/changed") taskStore.observeThreadStatus(params.threadId, params.status);
+  else if (message.method === "turn/started") {
+    taskStore.update(task.id, { state: "running", turnId: params.turn?.id || task.turnId }, { kind: "running", message: "The Codex turn started." });
+  } else if (message.method === "turn/completed") {
+    taskStore.finish(task.id, params.turn);
+    scheduleTaskPump();
+  } else if (["item/started", "item/completed"].includes(message.method)) {
+    taskStore.observeItem(params.threadId, params.item);
+  }
 }
 
 async function bootstrapData() {
@@ -389,8 +556,9 @@ async function bootstrapData() {
     activeClient.request("model/list", { limit: 100 }),
     activeClient.request("account/read", { refreshToken: false }),
   ]);
+  await recoverBackgroundTasks(activeClient);
   log("info", "codex.bootstrap_complete", { threads: threads.data.length, models: models.data.length, authenticated: Boolean(account.account) });
-  return { threads: threads.data, models: models.data, account, cli: cliStatus(), compatibility, desktop: desktopState(), updates: updateSnapshot(), lastThreadId: readSettings().lastThreadId || null };
+  return { threads: threads.data, models: models.data, account, cli: cliStatus(), compatibility, desktop: desktopState(), updates: updateSnapshot(), tasks: taskSnapshot(), lastThreadId: readSettings().lastThreadId || null };
 }
 
 async function cliVersion() {
@@ -418,6 +586,13 @@ async function diagnosticsSnapshot() {
     deepLinks: deepLinkSnapshot(),
     updates: updateSnapshot(),
     notifications: notificationSnapshot(),
+    tasks: {
+      counts: taskSnapshot().counts,
+      limits: taskSnapshot().limits,
+      unread: taskSnapshot().unread,
+      storage: taskStore?.filePath || null,
+      worktreeRoot: taskWorktreeRoot(),
+    },
     activeThread: activeThreadContext ? { id: activeThreadContext.id, project: path.basename(activeThreadContext.cwd), title: activeThreadContext.title } : null,
     logFile: logger?.filePath || null,
   };
@@ -612,11 +787,13 @@ function registerIpc() {
 
   ipcMain.handle("codex:answerRequest", (_event, { id, result }) => {
     getClient()?.respond(id, result);
+    taskStore?.resolveRequest(String(id));
     return true;
   });
 
   ipcMain.handle("codex:rejectRequest", (_event, { id, message }) => {
     getClient()?.reject(id, -32000, message || "Request was not supported by this client");
+    taskStore?.resolveRequest(String(id));
     return true;
   });
 
@@ -718,15 +895,66 @@ function registerIpc() {
     if (typeof processHandle !== "string" || processHandle.length < 1 || processHandle.length > 200) throw new TypeError("Terminal process handle is invalid");
     if (typeof terminalId !== "string" || terminalId.length < 1 || terminalId.length > 200) throw new TypeError("Terminal tab id is invalid");
     if (payload.exitCode != null && !Number.isInteger(payload.exitCode)) throw new TypeError("Terminal exit code is invalid");
-    return showDesktopNotification("terminal", {
+    const notification = showDesktopNotification("terminal", {
       id: processHandle,
       exitCode: payload.exitCode ?? null,
       failedToStart: payload.failedToStart === true,
       target: { kind: "terminal", processHandle, terminalId },
     });
+    if (payload.failedToStart === true || (Number.isInteger(payload.exitCode) && payload.exitCode !== 0)) {
+      taskStore?.addInbox({
+        kind: "terminal",
+        title: payload.failedToStart === true ? "Background terminal failed to start" : `Background terminal exited with code ${payload.exitCode}`,
+        detail: "Open the project terminal to inspect its output.",
+      });
+    }
+    return notification;
   });
 
   ipcMain.handle("desktop:getPreferences", () => desktopState());
+  ipcMain.handle("tasks:get", () => taskSnapshot());
+  ipcMain.handle("tasks:create", async (_event, payload = {}) => {
+    const repository = await git.repositoryRoot(payload.repository);
+    const task = taskStore.create({ ...payload, repository });
+    log("info", "tasks.queued", { taskId: task.id, repository, isolation: task.isolation });
+    scheduleTaskPump();
+    return taskSnapshot();
+  });
+  ipcMain.handle("tasks:cancel", async (_event, taskId) => {
+    const task = taskStore.find(taskId);
+    if (!task) throw new Error("Task was not found");
+    if (task.threadId && task.turnId && ["running", "waiting", "recovering"].includes(task.state)) {
+      const activeClient = await ensureConnected();
+      await activeClient.request("turn/interrupt", { threadId: task.threadId, turnId: task.turnId });
+    }
+    taskStore.cancel(taskId);
+    scheduleTaskPump();
+    return taskSnapshot();
+  });
+  ipcMain.handle("tasks:retry", (_event, taskId) => {
+    taskStore.retry(taskId);
+    scheduleTaskPump();
+    return taskSnapshot();
+  });
+  ipcMain.handle("tasks:dismissInbox", (_event, inboxId) => {
+    taskStore.dismissInbox(inboxId);
+    return taskSnapshot();
+  });
+  ipcMain.handle("tasks:showWorktree", async (_event, taskId) => {
+    const task = taskStore.find(taskId);
+    if (!task) throw new Error("Task was not found");
+    const target = task.worktreePath || task.cwd;
+    if (!target || !path.isAbsolute(target) || !fs.existsSync(target)) throw new Error("The task worktree is unavailable");
+    const realTarget = fs.realpathSync(target);
+    const realWorktreeRoot = task.worktreePath && fs.existsSync(taskWorktreeRoot()) ? fs.realpathSync(taskWorktreeRoot()) : null;
+    const worktreeRelative = realWorktreeRoot ? path.relative(realWorktreeRoot, realTarget) : null;
+    const allowedWorktree = Boolean(task.worktreePath && worktreeRelative && worktreeRelative !== ".." && !worktreeRelative.startsWith(`..${path.sep}`) && !path.isAbsolute(worktreeRelative));
+    const allowedRepository = realTarget === fs.realpathSync(task.repository);
+    if (!allowedWorktree && !allowedRepository) throw new Error("The task directory is outside its managed location");
+    const result = await shell.openPath(realTarget);
+    if (result) throw new Error(result);
+    return realTarget;
+  });
   ipcMain.handle("extensions:get", (_event, options = {}) => extensionSnapshot({ forceReload: options?.forceReload === true }));
   ipcMain.handle("extensions:setEnabled", (_event, payload) => setExtensionEnabled(payload));
   ipcMain.handle("extensions:showConfig", (_event, filePath) => showCodexConfig(filePath));
@@ -909,7 +1137,7 @@ function createWindow({ show = true } = {}) {
     mainWindow = null;
     if (!isQuitting) app.quit();
   });
-  const captureArgument = process.argv.find((argument) => argument.startsWith("--capture-ui=") || argument.startsWith("--capture-long-thread-ui=") || argument.startsWith("--capture-titlebar-menu-ui=") || argument.startsWith("--capture-diagnostics-ui=") || argument.startsWith("--capture-settings-ui=") || argument.startsWith("--capture-extensions-ui=") || argument.startsWith("--capture-accessibility-ui=") || argument.startsWith("--capture-updates-ui=") || argument.startsWith("--capture-region-ui=") || argument.startsWith("--capture-camera-ui=") || argument.startsWith("--capture-live-camera-ui=") || argument.startsWith("--capture-camera-attachment-ui="));
+  const captureArgument = process.argv.find((argument) => argument.startsWith("--capture-ui=") || argument.startsWith("--capture-long-thread-ui=") || argument.startsWith("--capture-titlebar-menu-ui=") || argument.startsWith("--capture-diagnostics-ui=") || argument.startsWith("--capture-settings-ui=") || argument.startsWith("--capture-tasks-ui=") || argument.startsWith("--capture-extensions-ui=") || argument.startsWith("--capture-accessibility-ui=") || argument.startsWith("--capture-updates-ui=") || argument.startsWith("--capture-region-ui=") || argument.startsWith("--capture-camera-ui=") || argument.startsWith("--capture-live-camera-ui=") || argument.startsWith("--capture-camera-attachment-ui="));
   if (captureArgument) mainWindow.webContents.once("did-finish-load", () => setTimeout(async () => {
     if (captureArgument.startsWith("--capture-long-thread-ui=")) {
       await mainWindow.webContents.executeJavaScript(`(() => {
@@ -963,17 +1191,17 @@ function createWindow({ show = true } = {}) {
         const menu = document.querySelector("#brandMenu");
         button.click();
         await new Promise((resolve) => requestAnimationFrame(resolve));
-        const homeBounds = document.querySelector("#homeButton").getBoundingClientRect();
+        const navigationBounds = document.querySelector(".titlebar-navigation").getBoundingClientRect();
         const buttonBounds = button.getBoundingClientRect();
         const menuBounds = menu.getBoundingClientRect();
         const state = {
           menuOpen: !menu.hidden && button.getAttribute("aria-expanded") === "true",
           settingsInMenu: menu.contains(document.querySelector("#settingsButton")),
           extensionsInMenu: menu.contains(document.querySelector("#extensionsButton")),
-          homeCentered: Math.abs(homeBounds.left + homeBounds.width / 2 - window.innerWidth / 2) < 1,
+          navigationCentered: Math.abs(navigationBounds.left + navigationBounds.width / 2 - window.innerWidth / 2) < 1,
           menuAnchored: Math.abs(menuBounds.left - buttonBounds.left) < 1 && menuBounds.top >= buttonBounds.bottom,
         };
-        if (!state.menuOpen || !state.settingsInMenu || !state.extensionsInMenu || !state.homeCentered || !state.menuAnchored) {
+        if (!state.menuOpen || !state.settingsInMenu || !state.extensionsInMenu || !state.navigationCentered || !state.menuAnchored) {
           throw new Error("Titlebar menu validation failed: " + JSON.stringify(state));
         }
         document.body.click();
@@ -988,6 +1216,41 @@ function createWindow({ show = true } = {}) {
     } else if (captureArgument.startsWith("--capture-settings-ui=")) {
       await mainWindow.webContents.executeJavaScript("document.querySelector('#accountButton').click()");
       await new Promise((resolve) => setTimeout(resolve, 500));
+    } else if (captureArgument.startsWith("--capture-tasks-ui=")) {
+      if (!taskStore.tasks.length) {
+        const repository = process.cwd();
+        const active = taskStore.create({
+          title: "Implement durable task recovery",
+          prompt: "Add restart-safe task recovery and verify it with automated tests.",
+          repository,
+          isolation: "worktree",
+          model: "gpt-5.6",
+          effort: "high",
+        });
+        taskStore.prepare(active.id, { cwd: path.join(taskWorktreeRoot(), "capture-task"), worktreePath: path.join(taskWorktreeRoot(), "capture-task") });
+        taskStore.running(active.id, { threadId: `capture-thread-${active.id}`, turnId: `capture-turn-${active.id}` });
+        taskStore.observeItem(`capture-thread-${active.id}`, {
+          id: "capture-collab",
+          type: "collabAgentToolCall",
+          tool: "spawnAgent",
+          status: "completed",
+          senderThreadId: `capture-thread-${active.id}`,
+          receiverThreadIds: ["capture-agent-reviewer"],
+          agentsStates: { "capture-agent-reviewer": { status: "running", message: "Reviewing recovery edge cases" } },
+          model: "gpt-5.6-terra",
+          reasoningEffort: "medium",
+        });
+        taskStore.waiting(active.id, "capture-request", "approval");
+        taskStore.create({
+          title: "Audit worktree safety",
+          prompt: "Review managed worktree path validation.",
+          repository,
+          isolation: "worktree",
+        });
+        taskStore.addInbox({ kind: "terminal", title: "Test terminal exited with code 1", detail: "Open the project terminal to inspect its output." });
+      }
+      await mainWindow.webContents.executeJavaScript("document.querySelector('#tasksButton').click()");
+      await new Promise((resolve) => setTimeout(resolve, 800));
     } else if (captureArgument.startsWith("--capture-extensions-ui=")) {
       await mainWindow.webContents.executeJavaScript("document.querySelector('#extensionsButton').click()");
       await new Promise((resolve) => setTimeout(resolve, 1800));
@@ -1368,6 +1631,7 @@ if (singleInstanceLockAcquired) app.whenReady().then(() => {
   log("info", "app.started", { version: app.getVersion(), packaged: app.isPackaged, platform: process.platform, arch: process.arch, previousUncleanShutdown });
   initializeAutostart();
   initializeUpdater();
+  initializeTasks();
   registerIpc();
   const startedByAutostart = process.argv.includes("--autostart");
   const backgroundStartup = startedByAutostart && !initialDeepLinkArgument;

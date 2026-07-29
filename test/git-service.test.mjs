@@ -78,3 +78,26 @@ test("GitService unstages files before the first commit", async (t) => {
   const status = await service.unstage(cwd, ["first.txt"]);
   assert.equal(status.entries[0].untracked, true);
 });
+
+test("GitService creates detached worktrees only inside the managed root", async (t) => {
+  const { cwd } = repository();
+  const managedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-linux-worktrees-"));
+  t.after(() => fs.rmSync(cwd, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(managedRoot, { recursive: true, force: true }));
+  const service = new GitService();
+  const destination = path.join(managedRoot, "task-1");
+  const result = await service.createDetachedWorktree(cwd, destination, { ref: "HEAD", allowedRoot: managedRoot });
+  assert.equal(result.repository, cwd);
+  assert.equal(result.path, destination);
+  assert.equal(fs.readFileSync(path.join(destination, "tracked.txt"), "utf8"), "first\n");
+  assert.equal(execFileSync("git", ["-C", destination, "branch", "--show-current"], { encoding: "utf8" }).trim(), "");
+
+  await assert.rejects(
+    service.createDetachedWorktree(cwd, path.join(managedRoot, "..", "outside"), { ref: "HEAD", allowedRoot: managedRoot }),
+    /inside the managed worktree root/,
+  );
+  await assert.rejects(
+    service.createDetachedWorktree(cwd, path.join(managedRoot, "unsafe-ref"), { ref: "--help", allowedRoot: managedRoot }),
+    /starting revision is invalid/,
+  );
+});

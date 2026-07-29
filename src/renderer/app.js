@@ -15,12 +15,12 @@ import { selectionFromPoints, selectionToImage } from "../shared/capture-region.
 
 const api = window.codexDesktop;
 const $ = (selector) => document.querySelector(selector);
-const state = { connected: false, connectionError: null, account: null, cli: null, compatibility: null, desktop: null, updates: null, extensions: null, loginPending: false, restorationAttempted: false, threads: [], models: [], activeThread: null, turns: [], activeTurnId: null, diff: "", diffView: "working", git: null, gitDiffs: { working: "", staged: "" }, gitSelection: null, gitFileDiff: "", attachments: [], terminals: createTerminalCollection(), requestQueue: [], currentRequest: null, pendingDeepLinks: [], flushingDeepLinks: false };
+const state = { connected: false, connectionError: null, account: null, cli: null, compatibility: null, desktop: null, updates: null, extensions: null, tasks: { tasks: [], inbox: [], limits: { maxConcurrent: 2, active: 0, queued: 0 }, counts: {}, unread: 0 }, loginPending: false, restorationAttempted: false, threads: [], models: [], activeThread: null, turns: [], activeTurnId: null, diff: "", diffView: "working", git: null, gitDiffs: { working: "", staged: "" }, gitSelection: null, gitFileDiff: "", attachments: [], terminals: createTerminalCollection(), requestQueue: [], currentRequest: null, pendingDeepLinks: [], flushingDeepLinks: false };
 const regionCapture = { source: null, start: null, selection: null, dragging: false };
 const cameraCapture = { stream: null, requestId: 0, devices: [] };
 
 const els = {
-  home: $("#homeButton"), brandMenuButton: $("#brandMenuButton"), brandMenu: $("#brandMenu"), settings: $("#settingsButton"), extensions: $("#extensionsButton"),
+  home: $("#homeButton"), tasksButton: $("#tasksButton"), tasksBadge: $("#tasksBadge"), brandMenuButton: $("#brandMenuButton"), brandMenu: $("#brandMenu"), settings: $("#settingsButton"), extensions: $("#extensionsButton"),
   threadList: $("#threadList"), threadSearch: $("#threadSearch"), refresh: $("#refreshButton"),
   newThread: $("#newThreadButton"), openProject: $("#openProjectButton"), folder: $("#folderButton"), folderName: $("#folderName"),
   threadTitle: $("#threadTitle"), projectPath: $("#projectPath"), welcome: $("#welcome"), messages: $("#messages"), conversation: $("#conversation"),
@@ -45,6 +45,12 @@ const els = {
   extensionsSummary: $("#extensionsSummary"), extensionIssues: $("#extensionIssues"),
   skillsList: $("#skillsList"), skillsCount: $("#skillsCount"), pluginsList: $("#pluginsList"), pluginsCount: $("#pluginsCount"),
   mcpList: $("#mcpList"), mcpCount: $("#mcpCount"), configList: $("#configList"), configCount: $("#configCount"),
+  tasksOverlay: $("#tasksOverlay"), closeTasks: $("#closeTasksButton"), tasksSummary: $("#tasksSummary"),
+  taskForm: $("#taskForm"), taskPrompt: $("#taskPromptInput"), taskTitle: $("#taskTitleInput"), taskRepository: $("#taskRepositoryInput"),
+  chooseTaskRepository: $("#chooseTaskRepositoryButton"), taskIsolation: $("#taskIsolationSelect"), taskBaseRef: $("#taskBaseRefInput"),
+  taskModel: $("#taskModelSelect"), taskEffort: $("#taskEffortSelect"), queueTask: $("#queueTaskButton"),
+  taskQueueList: $("#taskQueueList"), taskQueueCount: $("#taskQueueCount"), agentActivityList: $("#agentActivityList"),
+  agentActivityCount: $("#agentActivityCount"), taskInboxList: $("#taskInboxList"), taskInboxCount: $("#taskInboxCount"),
   gitBranch: $("#gitBranch"), refreshGit: $("#refreshGitButton"), terminalButton: $("#terminalButton"), terminalBadge: $("#terminalBadge"), terminalPanel: $("#terminalPanel"),
   terminalTabs: $("#terminalTabs"), terminalTitle: $("#terminalTitle"), terminalStatus: $("#terminalStatus"), terminalOutput: $("#terminalOutput"), terminalForm: $("#terminalForm"), terminalInput: $("#terminalInput"),
   newTerminal: $("#newTerminalButton"), closeTerminal: $("#closeTerminalButton"), restartTerminal: $("#restartTerminalButton"), attachmentTray: $("#attachmentTray"), attach: $("#attachButton"), screenshot: $("#screenshotButton"), camera: $("#cameraButton"), composer: $("#composer"),
@@ -72,7 +78,7 @@ function focusableElements(container) {
 }
 
 function modalOverlays() {
-  return [els.overlay, els.authOverlay, els.extensionsOverlay, els.screenshotOverlay, els.cameraOverlay, els.diagnosticsOverlay, els.regionOverlay];
+  return [els.overlay, els.tasksOverlay, els.authOverlay, els.extensionsOverlay, els.screenshotOverlay, els.cameraOverlay, els.diagnosticsOverlay, els.regionOverlay];
 }
 
 function activeModal() {
@@ -136,6 +142,7 @@ function closeActiveModal(overlay) {
   if (overlay === els.cameraOverlay) closeCamera();
   else if (overlay === els.regionOverlay) closeRegionCapture();
   else if (overlay === els.screenshotOverlay) hideDialog(els.screenshotOverlay, els.screenshot);
+  else if (overlay === els.tasksOverlay) hideDialog(els.tasksOverlay, els.tasksButton);
   else if (overlay === els.extensionsOverlay) hideDialog(els.extensionsOverlay, els.brandMenuButton);
   else if (overlay === els.diagnosticsOverlay) hideDialog(els.diagnosticsOverlay, els.more);
   else if (overlay === els.authOverlay) hideDialog(els.authOverlay, els.brandMenuButton);
@@ -566,6 +573,247 @@ function openExtensions() {
   loadExtensions({ forceReload: true });
 }
 
+function taskAge(timestamp) {
+  if (!Number.isFinite(timestamp)) return "";
+  return relativeTime(timestamp / 1000);
+}
+
+function taskStatusLabel(value) {
+  return {
+    queued: "Queued",
+    preparing: "Preparing",
+    running: "Running",
+    waiting: "Waiting",
+    recovering: "Recovering",
+    completed: "Completed",
+    failed: "Failed",
+    cancelled: "Stopped",
+  }[value] || value;
+}
+
+function metaRow(...values) {
+  const row = document.createElement("div");
+  row.className = "task-meta";
+  for (const value of values.filter(Boolean)) {
+    const item = document.createElement("span");
+    item.textContent = value;
+    row.append(item);
+  }
+  return row;
+}
+
+async function openTaskThread(task) {
+  if (!task.threadId) return;
+  hideDialog(els.tasksOverlay, els.tasksButton);
+  await resumeThread(task.threadId);
+}
+
+function renderTasks() {
+  const tasksState = state.tasks;
+  const tasks = tasksState?.tasks || [];
+  const inbox = tasksState?.inbox || [];
+  const limits = tasksState?.limits || { active: 0, queued: 0, maxConcurrent: 2 };
+  const agents = tasks.flatMap((task) => (task.agents || []).map((agent) => ({ ...agent, task })));
+  els.tasksBadge.hidden = !tasksState?.unread && !limits.active;
+  els.tasksBadge.textContent = String(tasksState?.unread || limits.active || 0);
+  els.tasksSummary.replaceChildren();
+  for (const [label, value] of [["active", `${limits.active}/${limits.maxConcurrent}`], ["queued", limits.queued], ["inbox", tasksState?.unread || 0]]) {
+    const pill = document.createElement("span");
+    const strong = document.createElement("strong");
+    strong.textContent = String(value);
+    pill.append(strong, ` ${label}`);
+    els.tasksSummary.append(pill);
+  }
+  els.taskQueueCount.textContent = String(tasks.length);
+  els.agentActivityCount.textContent = String(agents.length);
+  els.taskInboxCount.textContent = String(inbox.filter((item) => !item.resolved).length);
+
+  els.taskQueueList.replaceChildren();
+  if (!tasks.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-list";
+    empty.textContent = "No background tasks yet.";
+    els.taskQueueList.append(empty);
+  }
+  for (const task of tasks) {
+    const card = document.createElement("article");
+    card.className = "task-card";
+    card.setAttribute("role", "listitem");
+    const heading = document.createElement("div");
+    heading.className = "task-card-heading";
+    const title = document.createElement("strong");
+    title.textContent = task.title;
+    const status = document.createElement("span");
+    status.className = `task-state ${task.state}`;
+    status.textContent = taskStatusLabel(task.state);
+    heading.append(title, status);
+    const description = document.createElement("p");
+    description.textContent = task.error || task.summary || task.prompt;
+    const metadata = metaRow(basename(task.repository), task.isolation === "worktree" ? "worktree" : "local", taskAge(task.updatedAt), task.agents?.length ? `${task.agents.length} agent${task.agents.length === 1 ? "" : "s"}` : null);
+    const actions = document.createElement("div");
+    actions.className = "task-actions";
+    if (task.threadId) {
+      const open = document.createElement("button");
+      open.type = "button";
+      open.textContent = "Open thread";
+      open.addEventListener("click", () => openTaskThread(task).catch(showError));
+      actions.append(open);
+    }
+    if (task.worktreePath || task.cwd) {
+      const files = document.createElement("button");
+      files.type = "button";
+      files.textContent = task.worktreePath ? "Open worktree" : "Open project";
+      files.addEventListener("click", () => api.showTaskWorktree(task.id).catch(showError));
+      actions.append(files);
+    }
+    if (["queued", "preparing", "running", "waiting", "recovering"].includes(task.state)) {
+      const stop = document.createElement("button");
+      stop.type = "button";
+      stop.className = "stop-task";
+      stop.textContent = "Stop";
+      stop.addEventListener("click", async () => {
+        stop.disabled = true;
+        try { state.tasks = await api.cancelTask(task.id); renderTasks(); }
+        catch (error) { stop.disabled = false; showError(error); }
+      });
+      actions.append(stop);
+    } else {
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.textContent = "Retry";
+      retry.addEventListener("click", async () => {
+        retry.disabled = true;
+        try { state.tasks = await api.retryTask(task.id); renderTasks(); }
+        catch (error) { retry.disabled = false; showError(error); }
+      });
+      actions.append(retry);
+    }
+    card.append(heading, description, metadata, actions);
+    els.taskQueueList.append(card);
+  }
+
+  els.agentActivityList.replaceChildren();
+  if (!agents.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-list";
+    empty.textContent = "Subagent ownership and handoffs will appear here.";
+    els.agentActivityList.append(empty);
+  }
+  for (const agent of agents.sort((left, right) => right.updatedAt - left.updatedAt)) {
+    const card = document.createElement("article");
+    card.className = "agent-card";
+    card.setAttribute("role", "listitem");
+    const heading = document.createElement("div");
+    heading.className = "agent-card-heading";
+    const identity = document.createElement("div");
+    const dot = document.createElement("span");
+    dot.className = `agent-status-dot ${agent.status}`;
+    const labels = document.createElement("span");
+    const name = document.createElement("strong");
+    name.textContent = agent.name;
+    const taskName = document.createElement("small");
+    taskName.textContent = agent.task.title;
+    labels.append(name, taskName);
+    identity.append(dot, labels);
+    const status = document.createElement("span");
+    status.className = "task-state";
+    status.textContent = agent.status;
+    heading.append(identity, status);
+    const description = document.createElement("p");
+    description.textContent = agent.message || agent.role || "Working under the task’s Codex thread.";
+    const metadata = metaRow(agent.model, agent.effort, agent.role, taskAge(agent.updatedAt));
+    card.append(heading, description, metadata);
+    els.agentActivityList.append(card);
+  }
+
+  els.taskInboxList.replaceChildren();
+  const visibleInbox = inbox.filter((item) => !item.resolved);
+  if (!visibleInbox.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-list";
+    empty.textContent = "You’re all caught up.";
+    els.taskInboxList.append(empty);
+  }
+  for (const item of visibleInbox) {
+    const card = document.createElement("article");
+    card.className = "inbox-card unread";
+    card.setAttribute("role", "listitem");
+    const heading = document.createElement("div");
+    heading.className = "inbox-card-heading";
+    const title = document.createElement("strong");
+    title.textContent = item.title;
+    const kind = document.createElement("span");
+    kind.className = "inbox-kind";
+    kind.textContent = item.kind;
+    heading.append(title, kind);
+    const detail = document.createElement("p");
+    detail.textContent = item.detail;
+    const actions = document.createElement("div");
+    actions.className = "inbox-actions";
+    const task = tasks.find((candidate) => candidate.id === item.taskId);
+    if (task?.threadId) {
+      const open = document.createElement("button");
+      open.type = "button";
+      open.textContent = item.requestId ? "Open request" : "Open task";
+      open.addEventListener("click", () => openTaskThread(task).catch(showError));
+      actions.append(open);
+    }
+    const dismiss = document.createElement("button");
+    dismiss.type = "button";
+    dismiss.textContent = "Dismiss";
+    dismiss.addEventListener("click", async () => {
+      dismiss.disabled = true;
+      try { state.tasks = await api.dismissTaskInbox(item.id); renderTasks(); }
+      catch (error) { dismiss.disabled = false; showError(error); }
+    });
+    actions.append(dismiss);
+    card.append(heading, detail, actions);
+    els.taskInboxList.append(card);
+  }
+}
+
+function renderTaskModels() {
+  const selected = els.taskModel.value;
+  els.taskModel.replaceChildren(new Option("Default model", ""));
+  for (const model of state.models.filter((entry) => !entry.hidden)) {
+    els.taskModel.add(new Option(model.displayName + (model.isDefault ? " · default" : ""), model.model));
+  }
+  els.taskModel.value = state.models.some((model) => model.model === selected) ? selected : "";
+}
+
+async function openTasks() {
+  if (!els.taskRepository.value && state.activeThread?.cwd) els.taskRepository.value = state.activeThread.cwd;
+  renderTaskModels();
+  renderTasks();
+  showDialog(els.tasksOverlay, els.taskPrompt);
+  try {
+    state.tasks = await api.taskState();
+    renderTasks();
+  } catch (error) { showError(error); }
+}
+
+async function queueBackgroundTask() {
+  const payload = {
+    title: els.taskTitle.value,
+    prompt: els.taskPrompt.value,
+    repository: els.taskRepository.value,
+    isolation: els.taskIsolation.value,
+    baseRef: els.taskBaseRef.value || "HEAD",
+    model: els.taskModel.value || null,
+    effort: els.taskEffort.value || null,
+  };
+  els.queueTask.disabled = true;
+  try {
+    state.tasks = await api.createTask(payload);
+    els.taskPrompt.value = "";
+    els.taskTitle.value = "";
+    renderTasks();
+    toast("Background task queued");
+  } finally {
+    els.queueTask.disabled = false;
+  }
+}
+
 function diagnosticPill(label, condition) { const pill = document.createElement("span"); pill.className = `diagnostics-pill ${condition === "warn" ? "warn" : condition ? "good" : "bad"}`; pill.textContent = label; return pill; }
 async function openDiagnostics() {
   showDialog(els.diagnosticsOverlay, els.closeDiagnostics); els.diagnosticsContent.textContent = "Collecting diagnostics…"; els.diagnosticsStatus.replaceChildren();
@@ -589,6 +837,7 @@ function renderModels() {
   const selected = els.model.value; els.model.replaceChildren(new Option("Default model", ""));
   for (const model of state.models.filter((entry) => !entry.hidden)) els.model.add(new Option(model.displayName + (model.isDefault ? " · default" : ""), model.model));
   els.model.value = state.models.some((model) => model.model === selected) ? selected : "";
+  renderTaskModels();
 }
 function renderThreads() {
   const query = els.threadSearch.value.trim().toLowerCase();
@@ -1299,7 +1548,7 @@ async function bootstrap() {
 }
 
 function applyBootstrap(result) {
-  state.threads = result.threads; state.models = result.models; state.cli = result.cli || state.cli; state.compatibility = result.compatibility || state.compatibility; state.desktop = result.desktop || state.desktop; state.updates = result.updates || state.updates; setConnection(true); renderAccount(result.account); renderModels(); renderThreads(); renderDesktopPreferences(); renderUpdateState();
+  state.threads = result.threads; state.models = result.models; state.cli = result.cli || state.cli; state.compatibility = result.compatibility || state.compatibility; state.desktop = result.desktop || state.desktop; state.updates = result.updates || state.updates; state.tasks = result.tasks || state.tasks; setConnection(true); renderAccount(result.account); renderModels(); renderThreads(); renderDesktopPreferences(); renderUpdateState(); renderTasks();
   void flushPendingDeepLinks();
 }
 
@@ -1329,6 +1578,7 @@ api.onEvent(async (event) => {
   }
   else if (event.kind === "desktopPreferences") { state.desktop = event.desktop; renderDesktopPreferences(); }
   else if (event.kind === "updateState") { state.updates = event.updates; renderUpdateState(); }
+  else if (event.kind === "tasksState") { state.tasks = event.tasks; renderTasks(); }
   else if (event.kind === "quickPrompt") { if (state.activeThread) { els.prompt.value = event.text; updateComposer(); els.prompt.focus(); } else chooseAndStartThread(event.text).catch(showError); }
   else if (event.kind === "log" && /error/i.test(event.message)) console.warn(event.message);
 });
@@ -1489,10 +1739,25 @@ els.settings.addEventListener("click", () => {
   openAuth();
 });
 els.extensions.addEventListener("click", openExtensions);
+els.tasksButton.addEventListener("click", openTasks);
 els.home.addEventListener("click", showHome);
 els.closeAuth.addEventListener("click", () => hideDialog(els.authOverlay, els.brandMenuButton));
 els.closeExtensions.addEventListener("click", () => hideDialog(els.extensionsOverlay, els.brandMenuButton));
+els.closeTasks.addEventListener("click", () => hideDialog(els.tasksOverlay, els.tasksButton));
 els.refreshExtensions.addEventListener("click", () => loadExtensions({ forceReload: true }));
+els.chooseTaskRepository.addEventListener("click", async () => {
+  try {
+    const folder = await api.chooseFolder();
+    if (folder) els.taskRepository.value = folder;
+  } catch (error) { showError(error); }
+});
+els.taskIsolation.addEventListener("change", () => {
+  els.taskBaseRef.disabled = els.taskIsolation.value !== "worktree";
+});
+els.taskForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  queueBackgroundTask().catch(showError);
+});
 els.shortcutSelect.addEventListener("change", () => saveDesktopPreferences({ quickPromptShortcut: els.shortcutSelect.value || null }));
 els.trayEnabled.addEventListener("change", () => saveDesktopPreferences({ trayEnabled: els.trayEnabled.checked }));
 els.closeToTray.addEventListener("change", () => saveDesktopPreferences({ closeToTray: els.closeToTray.checked }));
@@ -1518,7 +1783,7 @@ els.more.addEventListener("click", openDiagnostics); els.closeDiagnostics.addEve
 els.copyDiagnostics.addEventListener("click", async () => { try { await api.copyDiagnostics(); toast("Diagnostics copied"); } catch (error) { showError(error); } });
 els.exportDiagnostics.addEventListener("click", async () => { try { const filePath = await api.exportDiagnostics(); if (filePath) toast(`Diagnostics exported to ${filePath}`); } catch (error) { showError(error); } });
 els.showLog.addEventListener("click", () => api.showLogFile().catch(showError));
-for (const overlay of [els.authOverlay, els.extensionsOverlay, els.screenshotOverlay, els.cameraOverlay, els.diagnosticsOverlay]) {
+for (const overlay of [els.tasksOverlay, els.authOverlay, els.extensionsOverlay, els.screenshotOverlay, els.cameraOverlay, els.diagnosticsOverlay]) {
   overlay.addEventListener("click", closeOnBackdropClick);
 }
 document.addEventListener("click", (event) => {
@@ -1539,6 +1804,7 @@ document.addEventListener("keydown", (event) => {
   const editable = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || event.target?.isContentEditable;
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") { event.preventDefault(); chooseAndStartThread().catch(showError); }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "j") { event.preventDefault(); openTerminal(); }
+  if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "b") { event.preventDefault(); openTasks(); }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); els.threadSearch.focus(); els.threadSearch.select(); }
   if ((event.ctrlKey || event.metaKey) && event.key === ",") { event.preventDefault(); openAuth(); }
   if (event.altKey && event.key === "ArrowLeft" && state.activeThread) { event.preventDefault(); showHome(); }

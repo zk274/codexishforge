@@ -27,6 +27,9 @@
         <button id="homeButton" class="titlebar-button" type="button" title="Return to the home screen" disabled>
           <span aria-hidden="true">⌂</span><span>Home</span>
         </button>
+        <button id="tasksButton" class="titlebar-button" type="button" title="Open background tasks">
+          <span aria-hidden="true">◫</span><span>Tasks</span><b id="tasksBadge" hidden>0</b>
+        </button>
       </nav>
     </div>
 
@@ -137,6 +140,52 @@
           <button id="denyRequestButton" class="secondary-button">Deny</button>
           <button id="allowSessionButton" class="secondary-button">Allow for session</button>
           <button id="allowRequestButton" class="primary-action">Allow once</button>
+        </div>
+      </section>
+    </div>
+
+    <div id="tasksOverlay" class="overlay" hidden>
+      <section class="tasks-dialog" role="dialog" aria-modal="true" aria-labelledby="tasksTitle">
+        <button id="closeTasksButton" class="dialog-close" title="Close" aria-label="Close Task Center">×</button>
+        <div class="tasks-heading">
+          <div>
+            <p class="eyebrow">CODEX 0.6</p>
+            <h2 id="tasksTitle">Task Center</h2>
+            <p class="tasks-copy">Queue durable background work, isolate concurrent changes in Git worktrees, and review every request and result in one place.</p>
+          </div>
+          <div id="tasksSummary" class="tasks-summary" aria-live="polite">Loading tasks…</div>
+        </div>
+
+        <form id="taskForm" class="task-form">
+          <div class="task-form-heading">
+            <div><p class="eyebrow">NEW BACKGROUND TASK</p><h3>Send work to Codex</h3></div>
+            <button id="queueTaskButton" class="primary-action" type="submit">Queue task</button>
+          </div>
+          <label class="task-wide-field"><span>Task</span><textarea id="taskPromptInput" rows="3" maxlength="20000" placeholder="Describe the outcome, constraints, and verification you want…" required></textarea></label>
+          <div class="task-form-grid">
+            <label><span>Title <small>optional</small></span><input id="taskTitleInput" maxlength="120" placeholder="Generated from the task" /></label>
+            <label><span>Repository</span><span class="task-path-input"><input id="taskRepositoryInput" aria-label="Task repository" readonly required /><button id="chooseTaskRepositoryButton" type="button" class="secondary-button">Choose…</button></span></label>
+            <label><span>Isolation</span><select id="taskIsolationSelect"><option value="worktree">Isolated worktree</option><option value="local">Local checkout</option></select></label>
+            <label><span>Starting revision</span><input id="taskBaseRefInput" maxlength="240" value="HEAD" /></label>
+            <label><span>Model</span><select id="taskModelSelect"><option value="">Default model</option></select></label>
+            <label><span>Reasoning</span><select id="taskEffortSelect"><option value="">Default effort</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option></select></label>
+          </div>
+          <p class="task-form-note">Worktree tasks start from the selected commit in detached HEAD state. Your local uncommitted changes remain untouched.</p>
+        </form>
+
+        <div class="task-center-grid">
+          <section class="task-center-section" aria-labelledby="taskQueueTitle">
+            <div class="task-center-section-heading"><div><p class="eyebrow">QUEUE</p><h3 id="taskQueueTitle">Background work</h3></div><span id="taskQueueCount" class="extension-count">0</span></div>
+            <div id="taskQueueList" class="task-list" role="list"><p class="empty-list">No background tasks yet.</p></div>
+          </section>
+          <section class="task-center-section" aria-labelledby="agentActivityTitle">
+            <div class="task-center-section-heading"><div><p class="eyebrow">AGENTS</p><h3 id="agentActivityTitle">Activity and handoffs</h3></div><span id="agentActivityCount" class="extension-count">0</span></div>
+            <div id="agentActivityList" class="agent-list" role="list"><p class="empty-list">Subagent activity will appear here.</p></div>
+          </section>
+          <section class="task-center-section" aria-labelledby="taskInboxTitle">
+            <div class="task-center-section-heading"><div><p class="eyebrow">INBOX</p><h3 id="taskInboxTitle">Needs attention</h3></div><span id="taskInboxCount" class="extension-count">0</span></div>
+            <div id="taskInboxList" class="task-inbox-list" role="list"><p class="empty-list">You’re all caught up.</p></div>
+          </section>
         </div>
       </section>
     </div>

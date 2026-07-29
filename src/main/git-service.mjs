@@ -15,6 +15,22 @@ function assertPaths(paths) {
   }
 }
 
+function assertRef(ref) {
+  if (typeof ref !== "string" || !ref.trim() || ref.length > 240 || ref.includes("\0") || ref.startsWith("-")) throw new Error("The Git starting revision is invalid");
+}
+
+function assertManagedDestination(destination, allowedRoot) {
+  if (typeof destination !== "string" || !path.isAbsolute(destination)) throw new Error("The worktree destination must be absolute");
+  if (typeof allowedRoot !== "string" || !path.isAbsolute(allowedRoot)) throw new Error("The managed worktree root must be absolute");
+  const normalizedRoot = path.resolve(allowedRoot);
+  const normalizedDestination = path.resolve(destination);
+  const relative = path.relative(normalizedRoot, normalizedDestination);
+  if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error("The worktree destination must be inside the managed worktree root");
+  }
+  return normalizedDestination;
+}
+
 export function parsePorcelainStatus(raw) {
   const records = raw.split("\0");
   const entries = [];
@@ -109,5 +125,21 @@ export class GitService {
     if (message.length > 10_000 || message.includes("\0")) throw new Error("The commit message is too long");
     const output = await this.run(cwd, ["commit", "-m", message.trim()]);
     return { output: output.trim(), status: await this.status(cwd) };
+  }
+
+  async repositoryRoot(cwd) {
+    const root = (await this.run(cwd, ["rev-parse", "--show-toplevel"])).trim();
+    if (!path.isAbsolute(root)) throw new Error("Git did not return an absolute repository root");
+    return path.normalize(root);
+  }
+
+  async createDetachedWorktree(cwd, destination, { ref = "HEAD", allowedRoot } = {}) {
+    const repository = await this.repositoryRoot(cwd);
+    const target = assertManagedDestination(destination, allowedRoot);
+    assertRef(ref);
+    const commit = (await this.run(repository, ["rev-parse", "--verify", `${ref}^{commit}`])).trim();
+    if (!/^[0-9a-f]{40,64}$/i.test(commit)) throw new Error("The starting revision did not resolve to a commit");
+    await this.run(repository, ["worktree", "add", "--detach", "--", target, commit], { acceptedExitCodes: [0] });
+    return { repository, path: target, commit, ref };
   }
 }
