@@ -96,6 +96,7 @@ Version 1.0 means the local-first coding workflow is dependable enough to recomm
 - Visible, manageable Codex extensions: skills, plugins, MCP servers, configuration, policies, and hooks
 - Files, images, screenshots, camera, voice, and long-form artifacts in one accessible workspace
 - Signed, updateable AppImage and Debian releases plus a reviewed classic Snap
+- Verifiable SHA-256 manifests, CycloneDX SBOMs, and signed build provenance
 - Documented compatibility support, migrations, recovery, security boundaries, and release cadence
 - Keyboard-complete, screen-reader-tested GNOME and KDE experiences on X11 and Wayland
 
@@ -103,4 +104,4 @@ Cloud-hosted execution, cross-device thread sync, and broad general-chat feature
 
 ## Release gates
 
-Every package must pass protocol tests, a packaged launch test with a minimal desktop `PATH`, an AppImage-to-Debian upgrade and recovery test from real 0.8 state fixtures, login/logout verification, approval-flow fixtures, artifact metadata inspection, and the automated accessibility conformance pass. A real-account login/logout pass and the applicable GNOME/KDE assistive-technology rows remain manual release checks because CI must never receive maintainer credentials or pretend to evaluate spoken output. Snap Store publication requires approval for classic confinement.
+Every package must pass protocol tests, a packaged launch test with a minimal desktop `PATH`, an AppImage-to-Debian upgrade and recovery test from real 0.8 state fixtures, login/logout verification, approval-flow fixtures, artifact metadata inspection, checksum and SBOM verification, and the automated accessibility conformance pass. Public release builds must also carry signed provenance and SBOM attestations. A real-account login/logout pass and the applicable GNOME/KDE assistive-technology rows remain manual release checks because CI must never receive maintainer credentials or pretend to evaluate spoken output. Snap Store publication requires approval for classic confinement.

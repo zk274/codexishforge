@@ -8,6 +8,8 @@ on:
 
 permissions:
   contents: read
+  id-token: write
+  attestations: write
 
 concurrency:
   group: release-gates-${{ github.ref }}
@@ -39,6 +41,33 @@ jobs:
       - name: Run release verification
         run: npm run release:verify
 
+      - name: Attest release provenance
+        if: github.event.repository.visibility == 'public'
+        id: provenance
+        uses: actions/attest@v4
+        with:
+          subject-checksums: dist/SHA256SUMS
+
+      - name: Preserve provenance bundle
+        if: github.event.repository.visibility == 'public'
+        run: cp "${{ steps.provenance.outputs.bundle-path }}" dist/release-provenance.sigstore.json
+
+      - name: Attest release SBOM
+        if: github.event.repository.visibility == 'public'
+        id: sbom
+        uses: actions/attest@v4
+        with:
+          subject-checksums: dist/SHA256SUMS
+          sbom-path: dist/release-sbom.cdx.json
+
+      - name: Preserve SBOM attestation bundle
+        if: github.event.repository.visibility == 'public'
+        run: cp "${{ steps.sbom.outputs.bundle-path }}" dist/release-sbom.sigstore.json
+
+      - name: Defer hosted attestations while private
+        if: github.event.repository.visibility != 'public'
+        run: echo "Trust metadata is verified; GitHub/Sigstore attestations activate automatically when the repository is public."
+
       - name: Upload verified packages
         uses: actions/upload-artifact@v7
         with:
@@ -50,4 +79,8 @@ jobs:
             dist/*.snap
             dist/*-linux.yml
             dist/*.blockmap
+            dist/SHA256SUMS
+            dist/release-manifest.json
+            dist/release-sbom.cdx.json
+            dist/*.sigstore.json
           retention-days: 14

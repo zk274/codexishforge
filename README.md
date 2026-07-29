@@ -137,13 +137,17 @@ Project links show the resolved local directory and require confirmation. Links 
 npm run check
 npm run dist
 npm run verify:artifacts
+npm run trust:generate
+npm run trust:verify
 npm run smoke:package
 npm run smoke:upgrade
 ```
 
 Packages are written to `dist/`. The build produces an AppImage, a `.deb` installer, and a classic-confinement `.snap`.
 
-`npm run release:verify` runs the complete sequence. Artifact verification checks package versions, architectures, Snap confinement, update metadata, sizes, and SHA-512 hashes. The packaged smoke tests use `xvfb-run` or an existing X display. They launch the AppImage with a clean home directory and minimal desktop `PATH`, then migrate real 0.8 settings, tasks, inbox, templates, and artifacts before reopening the same profile with the Debian package. Corrupt-primary recovery, newer-state protection, and preservation of CLI-owned authentication are also verified. GitHub Actions runs ordinary checks for every pull request and the full release gates for version tags or a manual dispatch.
+`npm run release:verify` runs the complete sequence. Artifact verification checks package versions, architectures, Snap confinement, update metadata, sizes, and SHA-512 hashes. Release-trust verification generates SHA-256 checksums, a versioned manifest, and a CycloneDX SBOM that includes the packaged Electron runtime. Public release builds receive signed GitHub/Sigstore provenance and SBOM attestations; see [Release integrity and provenance](docs/RELEASE-TRUST.md) for verification commands and the private-development boundary.
+
+The packaged smoke tests use `xvfb-run` or an existing X display. They launch the AppImage with a clean home directory and minimal desktop `PATH`, then migrate real 0.8 settings, tasks, inbox, templates, and artifacts before reopening the same profile with the Debian package. Corrupt-primary recovery, newer-state protection, and preservation of CLI-owned authentication are also verified. GitHub Actions runs ordinary checks for every pull request and the full release gates for version tags or a manual dispatch.
 
 Classic confinement is intentional: Codex must open user-selected repositories and launch the host CLI. Install a local Snap build with:
 
