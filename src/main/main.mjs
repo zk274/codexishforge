@@ -10,6 +10,7 @@ import electronUpdater from "electron-updater";
 import { XdgAutostart, resolveAutostartExecutable, resolveXdgConfigHome } from "./autostart.mjs";
 import { chatGptLoginStartParams, logoutAccount, validateChatGptLoginResponse } from "./auth-protocol.mjs";
 import { CodexClient } from "./codex-client.mjs";
+import { secureThreadExecutionParams, secureTurnExecutionParams } from "./codex-execution-policy.mjs";
 import { CreationStore, searchWorkspace, validateRealtimeAudioChunk } from "./creation-service.mjs";
 import { DEEP_LINK_SCHEME, extractDeepLinkArgument, parseDeepLink } from "./deep-links.mjs";
 import { mergeDesktopPreferences, normalizeDesktopPreferences, shortcutCandidates, shouldHideOnClose } from "./desktop-preferences.mjs";
@@ -526,24 +527,22 @@ async function startBackgroundTask(task) {
     const cwd = await prepareTaskDirectory(task);
     if (taskStore.find(task.id)?.state === "cancelled") return;
     const activeClient = await ensureConnected();
-    const response = await activeClient.request("thread/start", {
+    const response = await activeClient.request("thread/start", secureThreadExecutionParams({
       cwd,
       model: task.model || null,
-      approvalPolicy: "on-request",
-      sandbox: "workspace-write",
       serviceName: "codex_linux_community_background",
       sessionStartSource: "startup",
       threadSource: "codex-linux-community",
-    });
+    }));
     const threadId = response.thread.id;
     taskStore.running(task.id, { threadId });
     if (taskStore.find(task.id)?.state === "cancelled") return;
-    const turn = await activeClient.request("turn/start", {
+    const turn = await activeClient.request("turn/start", secureTurnExecutionParams({
       threadId,
       input: [{ type: "text", text: task.prompt, text_elements: [] }],
       model: task.model || null,
       effort: task.effort || null,
-    });
+    }));
     taskStore.update(task.id, { turnId: turn.turn?.id || null }, { kind: "turn", message: "The background turn is running." });
     log("info", "tasks.started", { taskId: task.id, threadId, turnId: turn.turn?.id || null, isolation: task.isolation });
   } catch (error) {
@@ -577,7 +576,7 @@ async function recoverBackgroundTasks(activeClient) {
   const recovering = taskStore.tasks.filter((task) => task.state === "recovering");
   for (const task of recovering) {
     try {
-      const response = await activeClient.request("thread/resume", { threadId: task.threadId });
+      const response = await activeClient.request("thread/resume", secureThreadExecutionParams({ threadId: task.threadId }));
       const turn = response.thread?.turns?.at(-1) || null;
       if (!turn) {
         taskStore.fail(task.id, "The saved Codex thread had no turn to recover.");
@@ -924,21 +923,19 @@ function registerIpc() {
   handleIpc("codex:startThread", async (_event, params) => {
     const activeClient = await ensureConnected();
     if (!path.isAbsolute(params.cwd)) throw new Error("Choose an absolute project folder");
-    const response = await activeClient.request("thread/start", {
+    const response = await activeClient.request("thread/start", secureThreadExecutionParams({
       cwd: params.cwd,
       model: params.model || null,
-      approvalPolicy: params.approvalPolicy || "on-request",
-      sandbox: params.sandbox || "workspace-write",
       sessionStartSource: "startup",
       threadSource: "codex-linux-community",
-    });
+    }));
     rememberThread({ id: response.thread.id, cwd: response.thread.cwd, title: response.thread.name || response.thread.preview || "New thread" });
     return response;
   });
 
   handleIpc("codex:resumeThread", async (_event, threadId) => {
     const activeClient = await ensureConnected();
-    const response = await activeClient.request("thread/resume", { threadId });
+    const response = await activeClient.request("thread/resume", secureThreadExecutionParams({ threadId }));
     rememberThread({ id: response.thread.id, cwd: response.thread.cwd, title: response.thread.name || response.thread.preview || "Codex thread" });
     return response;
   });
@@ -951,7 +948,7 @@ function registerIpc() {
 
   handleIpc("codex:sendTurn", async (_event, params) => {
     const activeClient = await ensureConnected();
-    return activeClient.request("turn/start", {
+    return activeClient.request("turn/start", secureTurnExecutionParams({
       threadId: params.threadId,
       input: [
         ...(params.text ? [{ type: "text", text: params.text, text_elements: [] }] : []),
@@ -962,7 +959,7 @@ function registerIpc() {
       ],
       model: params.model || null,
       effort: params.effort || null,
-    });
+    }));
   });
 
   handleIpc("codex:interruptTurn", async (_event, params) => {
@@ -1536,7 +1533,10 @@ function registerIpc() {
       return { submitted: false, needsProject: true };
     }
     const activeClient = await ensureConnected();
-    await activeClient.request("turn/start", { threadId: activeThreadContext.id, input: [{ type: "text", text: text.trim(), text_elements: [] }] });
+    await activeClient.request("turn/start", secureTurnExecutionParams({
+      threadId: activeThreadContext.id,
+      input: [{ type: "text", text: text.trim(), text_elements: [] }],
+    }));
     companionWindow.hide(); mainWindow.show(); mainWindow.focus();
     return { submitted: true };
   });
