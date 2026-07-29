@@ -58,9 +58,14 @@ This completes the installed Debian GNOME/Wayland check for version 0.9.0, inclu
 
 ### Installed classic Snap evidence
 
-On 2026-07-29, a maintainer installed the locally built version 0.9.0 (`amd64`) classic Snap on the same Ubuntu GNOME Wayland host. The installed package reported revision `x1` with classic confinement and opened normally through `snap run codex-linux-community`.
+On 2026-07-29, a maintainer installed the locally built version 0.9.0 (`amd64`) classic Snap on the same Ubuntu GNOME Wayland host:
 
-This completes the classic Snap install-and-launch smoke check. The remaining launcher integration, state continuity, desktop features, notifications, accessibility, and removal checks remain part of the manual GNOME/Wayland release-candidate row below.
+- The installed package reported revision `x1` with classic confinement and opened normally through `snap run codex-linux-community`.
+- Existing threads, settings, and selected-project state from the Debian installation remained available.
+- Launching from the GNOME application menu opened the Snap normally.
+- The registered `codex-linux:` handler routed repeated links to one main application process. GNOME displayed its “is ready” activation notification instead of allowing the background application to steal focus.
+
+This completes the classic Snap install, launch, state-continuity, application-menu, and single-instance deep-link checks. The remaining tray, shortcut, attachment, portal, camera, notification, accessibility, and removal checks remain part of the manual GNOME/Wayland release-candidate row below.
 
 ## Release-candidate desktop matrix
 
