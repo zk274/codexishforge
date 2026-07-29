@@ -47,13 +47,14 @@ On 2026-07-29, a maintainer completed the Debian install lifecycle for version 0
 - Reinstalling the same package opened normally with the previous user state intact.
 - Closing the main window retained the tray process, and `Ctrl+Shift+Space` opened the quick-prompt window.
 - File attachment, full-screen capture, region capture, camera preview, and still-image attachment completed successfully.
-- GNOME displayed an explicit application-branded notification test.
+- While the app was unfocused, a completed turn displayed the fixed, privacy-safe completion notification.
+- A command attempting to write outside the active project paused for approval and displayed the fixed approval notification while the app was unfocused; denying it left the requested file uncreated.
 - At 150% text with reduced motion and high contrast enabled, primary views and dialogs remained readable, navigable, scrollable, and free of overlapping controls.
 - `Tab`, `Shift+Tab`, `F6`, and `Escape` preserved visible focus, cycled primary work areas, closed the active dialog, and restored focus to its trigger.
 - With Orca and in-app screen-reader mode enabled, primary navigation, composer, Tasks, Review, Studio, Extensions, Settings, and dialog controls exposed useful spoken names.
 - A completed turn produced one completion announcement without streaming-token chatter; a user question produced one decision announcement, and dismissing it restored focus correctly.
 
-This records the installed-package, launcher, deep-link, removal, reinstall, tray, shortcut, attachment, portal, camera, desktop-notification-substrate, keyboard, focus, visual-mode, and spoken Orca portions of the GNOME/Wayland Debian check. It does not replace the remaining manual in-app desktop completion/approval notification check required for that row, or any AppImage, Snap, GNOME/X11, or KDE row.
+This completes the installed Debian GNOME/Wayland check for version 0.9.0, including launcher, deep-link, removal, reinstall, tray, shortcut, attachment, portal, camera, completion and approval notifications, keyboard, focus, visual modes, and spoken Orca behavior. It does not replace any AppImage, Snap, GNOME/X11, or KDE check.
 
 ## Release-candidate desktop matrix
 
