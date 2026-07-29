@@ -65,11 +65,11 @@ Codex Linux Community is a repository-first desktop coding agent. Desktop conven
 
 ## 0.7 — Review and collaboration
 
-- Commit, branch, push, and draft pull-request workflows with explicit confirmation boundaries
-- GitHub issue, pull-request, review-comment, and Actions status context
-- Review mode for agent changes with per-hunk decisions and test evidence
-- Shareable, redacted diagnostics and task summaries
-- Repository policy visibility for managed settings, hooks, permissions, and contribution guidance
+- [x] Commit, branch, push, and draft pull-request workflows with explicit confirmation boundaries
+- [x] GitHub issue, pull-request, review-comment, and Actions status context
+- [x] Review mode for agent changes with per-hunk decisions and test evidence
+- [x] Shareable, redacted diagnostics and task summaries
+- [x] Repository policy visibility for managed settings, hooks, permissions, and contribution guidance
 
 ## 0.8 — Richer creation
 

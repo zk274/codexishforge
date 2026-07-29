@@ -30,6 +30,9 @@
         <button id="tasksButton" class="titlebar-button" type="button" title="Open background tasks">
           <span aria-hidden="true">◫</span><span>Tasks</span><b id="tasksBadge" hidden>0</b>
         </button>
+        <button id="reviewButton" class="titlebar-button" type="button" title="Open review and collaboration">
+          <span aria-hidden="true">✓</span><span>Review</span><b id="reviewBadge" hidden>0</b>
+        </button>
       </nav>
     </div>
 
@@ -383,6 +386,96 @@
           <button id="showLogButton" class="secondary-button">Show log file</button>
           <button id="copyDiagnosticsButton" class="secondary-button">Copy report</button>
           <button id="exportDiagnosticsButton" class="primary-action">Export report…</button>
+        </div>
+      </section>
+    </div>
+
+    <div id="reviewOverlay" class="overlay review-overlay" hidden>
+      <section class="review-dialog" role="dialog" aria-modal="true" aria-labelledby="reviewTitle">
+        <button id="closeReviewButton" class="dialog-close" title="Close" aria-label="Close review center">×</button>
+        <header class="review-header">
+          <div>
+            <p class="eyebrow">REVIEW &amp; COLLABORATION</p>
+            <h2 id="reviewTitle">Review Center</h2>
+            <p id="reviewCopy" class="review-copy">Open a project to review changes, collect test evidence, and prepare a draft pull request.</p>
+          </div>
+          <button id="refreshReviewButton" class="secondary-button" type="button">Refresh</button>
+        </header>
+        <div id="reviewSummary" class="review-summary" aria-live="polite"></div>
+        <nav id="reviewTabs" class="review-tabs" role="tablist" aria-label="Review Center sections">
+          <button class="active" type="button" role="tab" aria-selected="true" data-review-tab="changes">Changes</button>
+          <button type="button" role="tab" aria-selected="false" data-review-tab="ship">Evidence &amp; ship</button>
+          <button type="button" role="tab" aria-selected="false" data-review-tab="github">GitHub</button>
+          <button type="button" role="tab" aria-selected="false" data-review-tab="policy">Policy &amp; share</button>
+        </nav>
+        <div class="review-panels">
+          <section class="review-panel" data-review-panel="changes" aria-label="Change review">
+            <div class="review-section-heading">
+              <div><p class="eyebrow">PER-HUNK REVIEW</p><h3>Agent changes</h3></div>
+              <span>Stage accepted hunks; reject only after confirmation.</span>
+            </div>
+            <div id="reviewChanges" class="review-change-list"></div>
+          </section>
+
+          <section class="review-panel" data-review-panel="ship" aria-label="Evidence and shipping" hidden>
+            <div class="review-ship-grid">
+              <section>
+                <div class="review-section-heading"><div><p class="eyebrow">TEST EVIDENCE</p><h3>Repository checks</h3></div></div>
+                <div id="reviewChecks" class="review-check-actions"></div>
+                <div id="reviewEvidence" class="review-evidence-list"></div>
+              </section>
+              <section class="review-publish">
+                <div class="review-section-heading"><div><p class="eyebrow">CONFIRMED ACTIONS</p><h3>Branch, commit, and publish</h3></div></div>
+                <form id="reviewBranchForm" class="review-action-form">
+                  <label>New branch<input id="reviewBranchName" maxlength="240" placeholder="agent/review-work" /></label>
+                  <button class="secondary-button">Create branch…</button>
+                </form>
+                <form id="reviewCommitForm" class="review-action-form">
+                  <label>Commit message<input id="reviewCommitMessage" maxlength="10000" placeholder="Describe the staged changes" /></label>
+                  <button class="secondary-button">Commit staged…</button>
+                </form>
+                <div class="review-push-row">
+                  <span id="reviewPushStatus">Create or select a branch before pushing.</span>
+                  <button id="reviewPushButton" class="secondary-button" type="button">Push branch…</button>
+                </div>
+                <form id="reviewPrForm" class="review-pr-form">
+                  <div class="review-pr-fields">
+                    <label>Base branch<input id="reviewPrBase" maxlength="240" value="main" /></label>
+                    <label>Draft PR title<input id="reviewPrTitle" maxlength="240" placeholder="Summarize the change" /></label>
+                  </div>
+                  <label>Description<textarea id="reviewPrBody" maxlength="20000" rows="6" placeholder="What changed, why, impact, and validation"></textarea></label>
+                  <button id="reviewPrButton" class="primary-action">Create draft pull request…</button>
+                </form>
+              </section>
+            </div>
+          </section>
+
+          <section class="review-panel" data-review-panel="github" aria-label="GitHub collaboration context" hidden>
+            <div id="githubReviewStatus" class="review-github-status"></div>
+            <div class="review-context-grid">
+              <section><div class="review-section-heading"><div><p class="eyebrow">ISSUES</p><h3>Open work</h3></div></div><div id="reviewIssues" class="review-context-list"></div></section>
+              <section><div class="review-section-heading"><div><p class="eyebrow">PULL REQUESTS</p><h3>Active reviews</h3></div></div><div id="reviewPulls" class="review-context-list"></div></section>
+              <section><div class="review-section-heading"><div><p class="eyebrow">ACTIONS</p><h3>Recent runs</h3></div></div><div id="reviewRuns" class="review-context-list"></div></section>
+              <section><div class="review-section-heading"><div><p class="eyebrow">COMMENTS</p><h3>Current PR feedback</h3></div></div><div id="reviewComments" class="review-context-list"></div></section>
+            </div>
+          </section>
+
+          <section class="review-panel" data-review-panel="policy" aria-label="Repository policy and sharing" hidden>
+            <div class="review-policy-grid">
+              <section>
+                <div class="review-section-heading"><div><p class="eyebrow">REPOSITORY POLICY</p><h3>Guidance and enforcement</h3></div></div>
+                <div id="reviewPolicy" class="review-policy-list"></div>
+              </section>
+              <section>
+                <div class="review-section-heading"><div><p class="eyebrow">SAFE TO SHARE</p><h3>Redacted summaries</h3></div></div>
+                <p class="review-share-copy">These summaries omit repository paths, thread IDs, prompts, responses, account data, logs, and credentials.</p>
+                <div class="review-share-actions">
+                  <button id="copyTaskSummaryButton" class="secondary-button" type="button">Copy task summary</button>
+                  <button id="copyShareableDiagnosticsButton" class="secondary-button" type="button">Copy diagnostics summary</button>
+                </div>
+              </section>
+            </div>
+          </section>
         </div>
       </section>
     </div>

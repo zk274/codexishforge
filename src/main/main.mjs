@@ -21,7 +21,11 @@ import {
 } from "./extension-inventory.mjs";
 import { resolveCodexCommand, validateCodexCommand } from "./codex-locator.mjs";
 import { GitService } from "./git-service.mjs";
+import { GitHubService } from "./github-service.mjs";
 import { inspectCodexProtocol, unknownProtocolCompatibility } from "./protocol-compatibility.mjs";
+import { repositoryPolicySnapshot } from "./repository-policy.mjs";
+import { discoverReviewChecks, runReviewCheck } from "./review-service.mjs";
+import { redactedDiagnosticsMarkdown, redactedTaskMarkdown } from "./share-summary.mjs";
 import { StructuredLogger } from "./structured-logger.mjs";
 import { TaskStore } from "./task-service.mjs";
 import { createTrayIconPng } from "./tray-icon.mjs";
@@ -89,6 +93,9 @@ const startedAt = Date.now();
 const execFileAsync = promisify(execFile);
 const imageExtensions = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"]);
 const git = new GitService();
+const github = new GitHubService();
+const reviewEvidence = new Map();
+const githubContextCache = new Map();
 
 function taskStoragePath() {
   return path.join(app.getPath("userData"), "tasks.json");
@@ -329,6 +336,16 @@ function activeRepository(cwd) {
   if (!activeThreadContext?.cwd) throw new Error("Open a Codex thread before changing Git state");
   if (fs.realpathSync(cwd) !== fs.realpathSync(activeThreadContext.cwd)) throw new Error("Git changes are limited to the active thread's repository");
   return cwd;
+}
+
+async function reviewRepository(cwd) {
+  if (!activeThreadContext?.cwd) throw new Error("Open a Codex thread before reviewing Git state");
+  const [activeRoot, candidateRoot] = await Promise.all([
+    git.repositoryRoot(activeThreadContext.cwd),
+    git.repositoryRoot(cwd),
+  ]);
+  if (fs.realpathSync(activeRoot) !== fs.realpathSync(candidateRoot)) throw new Error("Review actions are limited to the active thread's repository");
+  return activeRoot;
 }
 
 function bindClientEvents(activeClient) {
@@ -595,6 +612,33 @@ async function diagnosticsSnapshot() {
     },
     activeThread: activeThreadContext ? { id: activeThreadContext.id, project: path.basename(activeThreadContext.cwd), title: activeThreadContext.title } : null,
     logFile: logger?.filePath || null,
+  };
+}
+
+function evidenceFor(cwd) {
+  return reviewEvidence.get(cwd) || [];
+}
+
+async function githubContextFor(cwd, { force = false } = {}) {
+  const cached = githubContextCache.get(cwd);
+  if (!force && cached && Date.now() - cached.at < 60_000) return cached.value;
+  const value = await github.context(cwd);
+  githubContextCache.set(cwd, { at: Date.now(), value });
+  return value;
+}
+
+async function reviewCenterSnapshot(cwd, { forceGitHub = false } = {}) {
+  const repository = await reviewRepository(cwd);
+  const [review, githubContext, hooksPath] = await Promise.all([
+    git.review(repository, { evidence: evidenceFor(repository) }),
+    githubContextFor(repository, { force: forceGitHub }),
+    git.hooksPath(repository),
+  ]);
+  return {
+    review,
+    checks: discoverReviewChecks(repository),
+    github: githubContext,
+    policy: repositoryPolicySnapshot(repository, { hooksPath, remote: githubContext.protection }),
   };
 }
 
@@ -1031,6 +1075,105 @@ function registerIpc() {
     return { cancelled: false, ...(await git.commit(cwd, message)) };
   });
 
+  ipcMain.handle("review:get", (_event, { cwd, forceGitHub = false } = {}) => reviewCenterSnapshot(cwd, { forceGitHub }));
+  ipcMain.handle("review:decideHunk", async (_event, { cwd, hunkId, decision } = {}) => {
+    const repository = await reviewRepository(cwd);
+    if (decision === "reject") {
+      const { response } = await dialog.showMessageBox(mainWindow, {
+        type: "warning",
+        title: "Reject this hunk?",
+        message: "Discard this working-tree hunk?",
+        detail: "Only the selected hunk will be reversed. Staged content is preserved.",
+        buttons: ["Reject hunk", "Cancel"],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      });
+      if (response !== 0) return { cancelled: true, snapshot: await reviewCenterSnapshot(repository) };
+    }
+    await git.decideHunk(repository, hunkId, decision);
+    log("info", "review.hunk_decided", { decision });
+    return { cancelled: false, snapshot: await reviewCenterSnapshot(repository) };
+  });
+  ipcMain.handle("review:runCheck", async (_event, { cwd, checkId } = {}) => {
+    const repository = await reviewRepository(cwd);
+    const evidence = await runReviewCheck(repository, checkId);
+    const entries = [...evidenceFor(repository), evidence].slice(-20);
+    reviewEvidence.set(repository, entries);
+    log(evidence.passed ? "info" : "warn", "review.check_completed", { checkId: evidence.checkId, passed: evidence.passed, exitCode: evidence.exitCode, durationMs: evidence.durationMs });
+    return reviewCenterSnapshot(repository);
+  });
+  ipcMain.handle("review:createBranch", async (_event, { cwd, branch } = {}) => {
+    const repository = await reviewRepository(cwd);
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: "question",
+      title: "Create Git branch?",
+      message: `Create and switch to ${branch || "this branch"}?`,
+      detail: "Working and staged changes remain in the checkout.",
+      buttons: ["Create branch", "Cancel"],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (response !== 0) return { cancelled: true, snapshot: await reviewCenterSnapshot(repository) };
+    await git.createBranch(repository, branch);
+    githubContextCache.delete(repository);
+    return { cancelled: false, snapshot: await reviewCenterSnapshot(repository, { forceGitHub: true }) };
+  });
+  ipcMain.handle("review:push", async (_event, { cwd, remote = "origin" } = {}) => {
+    const repository = await reviewRepository(cwd);
+    const status = await git.status(repository);
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: "question",
+      title: "Push branch?",
+      message: `Push ${status.branch} to ${remote}?`,
+      detail: "This sets the upstream branch. Force push is never used.",
+      buttons: ["Push branch", "Cancel"],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (response !== 0) return { cancelled: true, snapshot: await reviewCenterSnapshot(repository) };
+    await git.push(repository, { remote });
+    githubContextCache.delete(repository);
+    return { cancelled: false, snapshot: await reviewCenterSnapshot(repository, { forceGitHub: true }) };
+  });
+  ipcMain.handle("review:createDraftPr", async (_event, { cwd, title, body, base } = {}) => {
+    const repository = await reviewRepository(cwd);
+    const status = await git.status(repository);
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: "question",
+      title: "Create draft pull request?",
+      message: `${status.branch} → ${base || "main"}`,
+      detail: title || "Untitled pull request",
+      buttons: ["Create draft PR", "Cancel"],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (response !== 0) return { cancelled: true, snapshot: await reviewCenterSnapshot(repository) };
+    const result = await github.createDraftPullRequest(repository, { title, body, base, head: status.branch });
+    githubContextCache.delete(repository);
+    return { cancelled: false, result, snapshot: await reviewCenterSnapshot(repository, { forceGitHub: true }) };
+  });
+  ipcMain.handle("review:showPolicy", async (_event, { cwd, policyPath } = {}) => {
+    const repository = await reviewRepository(cwd);
+    if (typeof policyPath !== "string" || path.isAbsolute(policyPath)) throw new Error("Policy path must be relative to the repository");
+    const target = path.resolve(repository, policyPath);
+    const relative = path.relative(repository, target);
+    if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || !fs.existsSync(target)) throw new Error("Policy file is outside the repository or unavailable");
+    shell.showItemInFolder(target);
+    return true;
+  });
+  ipcMain.handle("review:copyTaskSummary", () => {
+    clipboard.writeText(redactedTaskMarkdown(taskSnapshot()));
+    return true;
+  });
+  ipcMain.handle("review:copyDiagnostics", async () => {
+    clipboard.writeText(redactedDiagnosticsMarkdown(await diagnosticsSnapshot()));
+    return true;
+  });
+
   ipcMain.handle("terminal:start", async (_event, { cwd, cols = 100, rows = 28 }) => {
     const activeClient = await ensureConnected();
     const processHandle = `terminal-${randomUUID()}`;
@@ -1075,8 +1218,7 @@ function registerIpc() {
 
   ipcMain.handle("diagnostics:get", () => diagnosticsSnapshot());
   ipcMain.handle("diagnostics:copy", async () => {
-    const bundle = { diagnostics: await diagnosticsSnapshot(), logs: logger?.recent(150) || [] };
-    clipboard.writeText(JSON.stringify(bundle, null, 2));
+    clipboard.writeText(redactedDiagnosticsMarkdown(await diagnosticsSnapshot()));
     return true;
   });
   ipcMain.handle("diagnostics:export", async () => {
@@ -1137,7 +1279,7 @@ function createWindow({ show = true } = {}) {
     mainWindow = null;
     if (!isQuitting) app.quit();
   });
-  const captureArgument = process.argv.find((argument) => argument.startsWith("--capture-ui=") || argument.startsWith("--capture-long-thread-ui=") || argument.startsWith("--capture-titlebar-menu-ui=") || argument.startsWith("--capture-diagnostics-ui=") || argument.startsWith("--capture-settings-ui=") || argument.startsWith("--capture-tasks-ui=") || argument.startsWith("--capture-extensions-ui=") || argument.startsWith("--capture-accessibility-ui=") || argument.startsWith("--capture-updates-ui=") || argument.startsWith("--capture-region-ui=") || argument.startsWith("--capture-camera-ui=") || argument.startsWith("--capture-live-camera-ui=") || argument.startsWith("--capture-camera-attachment-ui="));
+  const captureArgument = process.argv.find((argument) => argument.startsWith("--capture-ui=") || argument.startsWith("--capture-long-thread-ui=") || argument.startsWith("--capture-titlebar-menu-ui=") || argument.startsWith("--capture-diagnostics-ui=") || argument.startsWith("--capture-settings-ui=") || argument.startsWith("--capture-tasks-ui=") || /^--capture-review(?:-(?:ship|github|policy))?-ui=/.test(argument) || argument.startsWith("--capture-extensions-ui=") || argument.startsWith("--capture-accessibility-ui=") || argument.startsWith("--capture-updates-ui=") || argument.startsWith("--capture-region-ui=") || argument.startsWith("--capture-camera-ui=") || argument.startsWith("--capture-live-camera-ui=") || argument.startsWith("--capture-camera-attachment-ui="));
   if (captureArgument) mainWindow.webContents.once("did-finish-load", () => setTimeout(async () => {
     if (captureArgument.startsWith("--capture-long-thread-ui=")) {
       await mainWindow.webContents.executeJavaScript(`(() => {
@@ -1251,6 +1393,48 @@ function createWindow({ show = true } = {}) {
       }
       await mainWindow.webContents.executeJavaScript("document.querySelector('#tasksButton').click()");
       await new Promise((resolve) => setTimeout(resolve, 800));
+    } else if (/^--capture-review(?:-(?:ship|github|policy))?-ui=/.test(captureArgument)) {
+      const repository = process.cwd();
+      activeThreadContext = { id: "capture-review-thread", cwd: repository, title: "Review 0.7 changes" };
+      const review = await git.review(repository, {
+        evidence: [{ id: "capture-check", checkId: "npm:check", label: "npm run check", passed: true, exitCode: 0, output: "108 tests passed", durationMs: 1830, completedAt: Date.now() }],
+      });
+      const policy = repositoryPolicySnapshot(repository, {
+        hooksPath: await git.hooksPath(repository),
+        remote: { protected: true, requiredChecks: ["Build, syntax, and tests"], requiredReviews: 1, requireConversationResolution: true },
+      });
+      sendEvent({
+        kind: "captureReview",
+        thread: activeThreadContext,
+        snapshot: {
+          review,
+          checks: discoverReviewChecks(repository),
+          policy,
+          github: {
+            available: true,
+            cliVersion: "gh 2.80.0",
+            repository: { name: "zk274/linuxcodexzk", url: "https://github.com/zk274/linuxcodexzk", defaultBranch: "main", visibility: "private", viewerPermission: "admin" },
+            issues: [{ number: 14, title: "Review keyboard navigation", state: "open", updatedAt: new Date().toISOString(), url: "https://github.com/zk274/linuxcodexzk/issues/14", labels: ["accessibility"], assignees: [] }],
+            pulls: [{ number: 12, title: "Add Task Center recovery", state: "open", draft: false, head: "tasks", base: "main", reviewDecision: "approved", checks: [{ name: "CI", status: "completed", conclusion: "SUCCESS" }], updatedAt: new Date().toISOString(), url: "https://github.com/zk274/linuxcodexzk/pull/12" }],
+            runs: [{ id: 123, name: "Build, syntax, and tests", workflow: "CI", status: "completed", conclusion: "success", branch: "main", event: "push", createdAt: new Date().toISOString(), url: "https://github.com/zk274/linuxcodexzk/actions/runs/123" }],
+            currentPull: null,
+            reviewComments: [{ id: 22, author: "reviewer", path: "src/main/git-service.mjs", line: 154, body: "Keep the server-side hunk validation.", createdAt: new Date().toISOString(), url: "https://github.com/zk274/linuxcodexzk/pull/12#discussion_r22" }],
+            protection: { protected: true, requiredChecks: ["Build, syntax, and tests"], requiredReviews: 1, requireCodeOwners: false, requireConversationResolution: true, enforceAdmins: false },
+          },
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      const captureTab = captureArgument.startsWith("--capture-review-ship-ui=")
+        ? "ship"
+        : captureArgument.startsWith("--capture-review-github-ui=")
+          ? "github"
+          : captureArgument.startsWith("--capture-review-policy-ui=")
+            ? "policy"
+            : null;
+      if (captureTab) {
+        await mainWindow.webContents.executeJavaScript(`document.querySelector('[data-review-tab="${captureTab}"]').click()`);
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
     } else if (captureArgument.startsWith("--capture-extensions-ui=")) {
       await mainWindow.webContents.executeJavaScript("document.querySelector('#extensionsButton').click()");
       await new Promise((resolve) => setTimeout(resolve, 1800));

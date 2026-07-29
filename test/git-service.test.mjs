@@ -101,3 +101,41 @@ test("GitService creates detached worktrees only inside the managed root", async
     /starting revision is invalid/,
   );
 });
+
+test("GitService stages and rejects regenerated review hunks independently", async (t) => {
+  const { cwd, git } = repository();
+  t.after(() => fs.rmSync(cwd, { recursive: true, force: true }));
+  const service = new GitService();
+  fs.writeFileSync(path.join(cwd, "tracked.txt"), "first\naccepted\nmiddle\nrejected\n");
+
+  let review = await service.review(cwd);
+  assert.equal(review.counts.workingHunks, 1);
+  const combined = review.working[0].hunks[0];
+  review = await service.decideHunk(cwd, combined.id, "stage");
+  assert.equal(review.counts.workingHunks, 0);
+  assert.equal(review.counts.stagedHunks, 1);
+  await service.unstage(cwd, ["tracked.txt"]);
+
+  fs.writeFileSync(path.join(cwd, "tracked.txt"), "first\n");
+  fs.appendFileSync(path.join(cwd, "tracked.txt"), "discard this\n");
+  review = await service.review(cwd);
+  await service.decideHunk(cwd, review.working[0].hunks[0].id, "reject");
+  assert.equal(fs.readFileSync(path.join(cwd, "tracked.txt"), "utf8"), "first\n");
+  assert.equal(git("status", "--porcelain").trim(), "");
+});
+
+test("GitService creates a branch and pushes without force", async (t) => {
+  const { cwd, git } = repository();
+  const remote = fs.mkdtempSync(path.join(os.tmpdir(), "codex-linux-remote-"));
+  t.after(() => fs.rmSync(cwd, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(remote, { recursive: true, force: true }));
+  execFileSync("git", ["init", "--bare", "-q", remote]);
+  git("remote", "add", "origin", remote);
+  const service = new GitService();
+  const branched = await service.createBranch(cwd, "agent/review-mode");
+  assert.equal(branched.branch, "agent/review-mode");
+  const pushed = await service.push(cwd);
+  assert.equal(pushed.upstream, "origin/agent/review-mode");
+  assert.equal(execFileSync("git", ["--git-dir", remote, "rev-parse", "refs/heads/agent/review-mode"], { encoding: "utf8" }).trim(), git("rev-parse", "HEAD").trim());
+  await assert.rejects(service.createBranch(cwd, "--unsafe"), /branch name is invalid/);
+});

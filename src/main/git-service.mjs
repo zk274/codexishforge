@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import path from "node:path";
+import { executeWithInput, parseUnifiedDiff, reviewSummary } from "./review-service.mjs";
 
 const MAX_BUFFER = 16 * 1024 * 1024;
 
@@ -17,6 +18,16 @@ function assertPaths(paths) {
 
 function assertRef(ref) {
   if (typeof ref !== "string" || !ref.trim() || ref.length > 240 || ref.includes("\0") || ref.startsWith("-")) throw new Error("The Git starting revision is invalid");
+}
+
+function assertBranch(branch) {
+  if (typeof branch !== "string" || !branch.trim() || branch.length > 240 || branch.includes("\0") || branch.startsWith("-") || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(branch)) {
+    throw new Error("The Git branch name is invalid");
+  }
+}
+
+function assertRemote(remote) {
+  if (typeof remote !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,100}$/.test(remote)) throw new Error("The Git remote name is invalid");
 }
 
 function assertManagedDestination(destination, allowedRoot) {
@@ -70,10 +81,11 @@ export class GitService {
   }
 
   async status(cwd) {
-    const [raw, branch, upstream] = await Promise.all([
+    const [raw, branch, upstream, root] = await Promise.all([
       this.run(cwd, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
       this.run(cwd, ["branch", "--show-current"]),
       this.run(cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], { acceptedExitCodes: [0, 128] }),
+      this.run(cwd, ["rev-parse", "--show-toplevel"]),
     ]);
     let ahead = 0;
     let behind = 0;
@@ -82,7 +94,7 @@ export class GitService {
       const counts = await this.run(cwd, ["rev-list", "--left-right", "--count", `HEAD...${upstreamName}`]);
       [ahead, behind] = counts.trim().split(/\s+/).map(Number);
     }
-    return { branch: branch.trim() || "detached", upstream: upstreamName, ahead: ahead || 0, behind: behind || 0, entries: parsePorcelainStatus(raw) };
+    return { root: path.normalize(root.trim()), branch: branch.trim() || "detached", upstream: upstreamName, ahead: ahead || 0, behind: behind || 0, entries: parsePorcelainStatus(raw) };
   }
 
   async diff(cwd, { staged = false, file = null } = {}) {
@@ -125,6 +137,50 @@ export class GitService {
     if (message.length > 10_000 || message.includes("\0")) throw new Error("The commit message is too long");
     const output = await this.run(cwd, ["commit", "-m", message.trim()]);
     return { output: output.trim(), status: await this.status(cwd) };
+  }
+
+  async createBranch(cwd, branch) {
+    assertBranch(branch);
+    await this.run(cwd, ["switch", "-c", branch]);
+    return this.status(cwd);
+  }
+
+  async push(cwd, { remote = "origin" } = {}) {
+    assertRemote(remote);
+    const status = await this.status(cwd);
+    if (status.branch === "detached") throw new Error("Create a branch before pushing");
+    await this.run(cwd, ["push", "--set-upstream", remote, status.branch]);
+    return this.status(cwd);
+  }
+
+  async hooksPath(cwd) {
+    return (await this.run(cwd, ["config", "--get", "core.hooksPath"], { acceptedExitCodes: [0, 1] })).trim() || null;
+  }
+
+  async review(cwd, { evidence = [] } = {}) {
+    const status = await this.status(cwd);
+    const [tracked, staged] = await Promise.all([
+      this.run(cwd, ["diff", "--no-ext-diff", "--color=never", "--no-renames"]),
+      this.run(cwd, ["diff", "--cached", "--no-ext-diff", "--color=never", "--no-renames"]),
+    ]);
+    const untracked = [];
+    for (const entry of status.entries.filter((candidate) => candidate.untracked).slice(0, 200)) {
+      untracked.push(await this.diff(cwd, { file: entry.path }));
+    }
+    return reviewSummary({ status, workingDiff: [tracked, ...untracked].filter(Boolean).join("\n"), stagedDiff: staged, evidence });
+  }
+
+  async decideHunk(cwd, hunkId, decision) {
+    if (typeof hunkId !== "string" || !/^[a-f0-9]{24}$/.test(hunkId)) throw new Error("The review hunk identifier is invalid");
+    if (!["stage", "reject"].includes(decision)) throw new Error("Choose whether to stage or reject the hunk");
+    const review = await this.review(cwd);
+    const hunk = review.working.flatMap((file) => file.hunks).find((candidate) => candidate.id === hunkId);
+    if (!hunk) throw new Error("That hunk changed since the review was loaded. Refresh and try again.");
+    if (review.working.find((file) => file.path === hunk.file)?.binary) throw new Error("Binary changes must be reviewed at file level");
+    const args = ["apply", "--recount", "--whitespace=nowarn", ...(decision === "stage" ? ["--cached"] : ["--reverse"]), "-"];
+    await executeWithInput("git", ["-C", cwd, ...args.slice(0, -1), "--check", "-"], hunk.patch, { cwd, timeout: this.timeout });
+    await executeWithInput("git", ["-C", cwd, ...args], hunk.patch, { cwd, timeout: this.timeout });
+    return this.review(cwd);
   }
 
   async repositoryRoot(cwd) {

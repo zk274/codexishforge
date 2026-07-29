@@ -15,12 +15,12 @@ import { selectionFromPoints, selectionToImage } from "../shared/capture-region.
 
 const api = window.codexDesktop;
 const $ = (selector) => document.querySelector(selector);
-const state = { connected: false, connectionError: null, account: null, cli: null, compatibility: null, desktop: null, updates: null, extensions: null, tasks: { tasks: [], inbox: [], limits: { maxConcurrent: 2, active: 0, queued: 0 }, counts: {}, unread: 0 }, loginPending: false, restorationAttempted: false, threads: [], models: [], activeThread: null, turns: [], activeTurnId: null, diff: "", diffView: "working", git: null, gitDiffs: { working: "", staged: "" }, gitSelection: null, gitFileDiff: "", attachments: [], terminals: createTerminalCollection(), requestQueue: [], currentRequest: null, pendingDeepLinks: [], flushingDeepLinks: false };
+const state = { connected: false, connectionError: null, account: null, cli: null, compatibility: null, desktop: null, updates: null, extensions: null, tasks: { tasks: [], inbox: [], limits: { maxConcurrent: 2, active: 0, queued: 0 }, counts: {}, unread: 0 }, review: null, reviewTab: "changes", loginPending: false, restorationAttempted: false, threads: [], models: [], activeThread: null, turns: [], activeTurnId: null, diff: "", diffView: "working", git: null, gitDiffs: { working: "", staged: "" }, gitSelection: null, gitFileDiff: "", attachments: [], terminals: createTerminalCollection(), requestQueue: [], currentRequest: null, pendingDeepLinks: [], flushingDeepLinks: false };
 const regionCapture = { source: null, start: null, selection: null, dragging: false };
 const cameraCapture = { stream: null, requestId: 0, devices: [] };
 
 const els = {
-  home: $("#homeButton"), tasksButton: $("#tasksButton"), tasksBadge: $("#tasksBadge"), brandMenuButton: $("#brandMenuButton"), brandMenu: $("#brandMenu"), settings: $("#settingsButton"), extensions: $("#extensionsButton"),
+  home: $("#homeButton"), tasksButton: $("#tasksButton"), tasksBadge: $("#tasksBadge"), reviewButton: $("#reviewButton"), reviewBadge: $("#reviewBadge"), brandMenuButton: $("#brandMenuButton"), brandMenu: $("#brandMenu"), settings: $("#settingsButton"), extensions: $("#extensionsButton"),
   threadList: $("#threadList"), threadSearch: $("#threadSearch"), refresh: $("#refreshButton"),
   newThread: $("#newThreadButton"), openProject: $("#openProjectButton"), folder: $("#folderButton"), folderName: $("#folderName"),
   threadTitle: $("#threadTitle"), projectPath: $("#projectPath"), welcome: $("#welcome"), messages: $("#messages"), conversation: $("#conversation"),
@@ -51,6 +51,12 @@ const els = {
   taskModel: $("#taskModelSelect"), taskEffort: $("#taskEffortSelect"), queueTask: $("#queueTaskButton"),
   taskQueueList: $("#taskQueueList"), taskQueueCount: $("#taskQueueCount"), agentActivityList: $("#agentActivityList"),
   agentActivityCount: $("#agentActivityCount"), taskInboxList: $("#taskInboxList"), taskInboxCount: $("#taskInboxCount"),
+  reviewOverlay: $("#reviewOverlay"), closeReview: $("#closeReviewButton"), refreshReview: $("#refreshReviewButton"), reviewCopy: $("#reviewCopy"), reviewSummary: $("#reviewSummary"),
+  reviewTabs: $("#reviewTabs"), reviewChanges: $("#reviewChanges"), reviewChecks: $("#reviewChecks"), reviewEvidence: $("#reviewEvidence"),
+  reviewBranchForm: $("#reviewBranchForm"), reviewBranchName: $("#reviewBranchName"), reviewCommitForm: $("#reviewCommitForm"), reviewCommitMessage: $("#reviewCommitMessage"),
+  reviewPushStatus: $("#reviewPushStatus"), reviewPush: $("#reviewPushButton"), reviewPrForm: $("#reviewPrForm"), reviewPrBase: $("#reviewPrBase"), reviewPrTitle: $("#reviewPrTitle"), reviewPrBody: $("#reviewPrBody"), reviewPrButton: $("#reviewPrButton"),
+  githubReviewStatus: $("#githubReviewStatus"), reviewIssues: $("#reviewIssues"), reviewPulls: $("#reviewPulls"), reviewRuns: $("#reviewRuns"), reviewComments: $("#reviewComments"),
+  reviewPolicy: $("#reviewPolicy"), copyTaskSummary: $("#copyTaskSummaryButton"), copyShareableDiagnostics: $("#copyShareableDiagnosticsButton"),
   gitBranch: $("#gitBranch"), refreshGit: $("#refreshGitButton"), terminalButton: $("#terminalButton"), terminalBadge: $("#terminalBadge"), terminalPanel: $("#terminalPanel"),
   terminalTabs: $("#terminalTabs"), terminalTitle: $("#terminalTitle"), terminalStatus: $("#terminalStatus"), terminalOutput: $("#terminalOutput"), terminalForm: $("#terminalForm"), terminalInput: $("#terminalInput"),
   newTerminal: $("#newTerminalButton"), closeTerminal: $("#closeTerminalButton"), restartTerminal: $("#restartTerminalButton"), attachmentTray: $("#attachmentTray"), attach: $("#attachButton"), screenshot: $("#screenshotButton"), camera: $("#cameraButton"), composer: $("#composer"),
@@ -78,7 +84,7 @@ function focusableElements(container) {
 }
 
 function modalOverlays() {
-  return [els.overlay, els.tasksOverlay, els.authOverlay, els.extensionsOverlay, els.screenshotOverlay, els.cameraOverlay, els.diagnosticsOverlay, els.regionOverlay];
+  return [els.overlay, els.tasksOverlay, els.reviewOverlay, els.authOverlay, els.extensionsOverlay, els.screenshotOverlay, els.cameraOverlay, els.diagnosticsOverlay, els.regionOverlay];
 }
 
 function activeModal() {
@@ -143,6 +149,7 @@ function closeActiveModal(overlay) {
   else if (overlay === els.regionOverlay) closeRegionCapture();
   else if (overlay === els.screenshotOverlay) hideDialog(els.screenshotOverlay, els.screenshot);
   else if (overlay === els.tasksOverlay) hideDialog(els.tasksOverlay, els.tasksButton);
+  else if (overlay === els.reviewOverlay) hideDialog(els.reviewOverlay, els.reviewButton);
   else if (overlay === els.extensionsOverlay) hideDialog(els.extensionsOverlay, els.brandMenuButton);
   else if (overlay === els.diagnosticsOverlay) hideDialog(els.diagnosticsOverlay, els.more);
   else if (overlay === els.authOverlay) hideDialog(els.authOverlay, els.brandMenuButton);
@@ -814,6 +821,346 @@ async function queueBackgroundTask() {
   }
 }
 
+function reviewEmpty(container, message) {
+  container.replaceChildren();
+  const empty = document.createElement("p");
+  empty.className = "empty-list";
+  empty.textContent = message;
+  container.append(empty);
+}
+
+function reviewPill(label, value, tone = "") {
+  const pill = document.createElement("span");
+  pill.className = `review-pill ${tone}`.trim();
+  const strong = document.createElement("strong");
+  strong.textContent = String(value);
+  pill.append(strong, ` ${label}`);
+  return pill;
+}
+
+function formatReviewDate(value) {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? taskAge(timestamp) : "";
+}
+
+function setReviewTab(tab) {
+  state.reviewTab = ["changes", "ship", "github", "policy"].includes(tab) ? tab : "changes";
+  for (const button of els.reviewTabs.querySelectorAll("[data-review-tab]")) {
+    const active = button.dataset.reviewTab === state.reviewTab;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+    button.tabIndex = active ? 0 : -1;
+  }
+  for (const panel of document.querySelectorAll("[data-review-panel]")) panel.hidden = panel.dataset.reviewPanel !== state.reviewTab;
+}
+
+async function decideReviewHunk(hunk, decision, button) {
+  if (!state.activeThread) return;
+  button.disabled = true;
+  try {
+    const result = await api.decideReviewHunk({ cwd: state.activeThread.cwd, hunkId: hunk.id, decision });
+    state.review = result.snapshot;
+    renderReview();
+    await refreshGit();
+    if (!result.cancelled) toast(decision === "stage" ? "Hunk staged" : "Hunk rejected");
+  } catch (error) {
+    button.disabled = false;
+    showError(error);
+  }
+}
+
+function renderReviewFile(file, { staged = false } = {}) {
+  const card = document.createElement("article");
+  card.className = `review-file${staged ? " staged" : ""}`;
+  const heading = document.createElement("header");
+  const title = document.createElement("div");
+  const name = document.createElement("strong");
+  name.textContent = file.path;
+  const stats = document.createElement("span");
+  stats.textContent = `+${file.additions} −${file.deletions} · ${file.hunks.length} hunk${file.hunks.length === 1 ? "" : "s"}`;
+  title.append(name, stats);
+  const stateLabel = document.createElement("span");
+  stateLabel.className = `review-file-state ${staged ? "staged" : "working"}`;
+  stateLabel.textContent = staged ? "staged" : file.binary ? "binary" : "working";
+  heading.append(title, stateLabel);
+  card.append(heading);
+
+  if (file.binary) {
+    const message = document.createElement("p");
+    message.className = "review-binary";
+    message.textContent = "Binary changes are reviewed at file level.";
+    card.append(message);
+  }
+  for (const hunk of file.hunks) {
+    const details = document.createElement("details");
+    details.className = "review-hunk";
+    details.open = !staged;
+    const summary = document.createElement("summary");
+    const label = document.createElement("code");
+    label.textContent = hunk.header;
+    const delta = document.createElement("span");
+    delta.textContent = `+${hunk.additions} −${hunk.deletions}`;
+    summary.append(label, delta);
+    const patch = document.createElement("pre");
+    patch.textContent = hunk.lines.join("\n");
+    details.append(summary, patch);
+    if (!staged) {
+      const actions = document.createElement("div");
+      actions.className = "review-hunk-actions";
+      const reject = document.createElement("button");
+      reject.type = "button";
+      reject.className = "danger-button";
+      reject.textContent = "Reject hunk…";
+      reject.addEventListener("click", () => decideReviewHunk(hunk, "reject", reject));
+      const accept = document.createElement("button");
+      accept.type = "button";
+      accept.className = "primary-action";
+      accept.textContent = "Accept & stage";
+      accept.addEventListener("click", () => decideReviewHunk(hunk, "stage", accept));
+      actions.append(reject, accept);
+      details.append(actions);
+    }
+    card.append(details);
+  }
+  const fileActions = document.createElement("div");
+  fileActions.className = "review-file-actions";
+  if (staged) {
+    const unstage = document.createElement("button");
+    unstage.type = "button";
+    unstage.className = "secondary-button";
+    unstage.textContent = "Unstage file";
+    unstage.addEventListener("click", async () => {
+      unstage.disabled = true;
+      try {
+        await api.gitUnstage({ cwd: state.activeThread.cwd, paths: [file.path] });
+        await loadReview();
+        await refreshGit();
+      } catch (error) { unstage.disabled = false; showError(error); }
+    });
+    fileActions.append(unstage);
+  } else if (file.binary || !file.hunks.length) {
+    const reject = document.createElement("button");
+    reject.type = "button";
+    reject.className = "danger-button";
+    reject.textContent = "Discard file…";
+    reject.addEventListener("click", async () => {
+      reject.disabled = true;
+      try {
+        const result = await api.gitDiscard({ cwd: state.activeThread.cwd, paths: [file.path] });
+        if (!result.cancelled) { await loadReview(); await refreshGit(); }
+        else reject.disabled = false;
+      } catch (error) { reject.disabled = false; showError(error); }
+    });
+    const stage = document.createElement("button");
+    stage.type = "button";
+    stage.className = "primary-action";
+    stage.textContent = "Accept & stage file";
+    stage.addEventListener("click", async () => {
+      stage.disabled = true;
+      try {
+        await api.gitStage({ cwd: state.activeThread.cwd, paths: [file.path] });
+        await loadReview();
+        await refreshGit();
+      } catch (error) { stage.disabled = false; showError(error); }
+    });
+    fileActions.append(reject, stage);
+  }
+  if (fileActions.childElementCount) card.append(fileActions);
+  return card;
+}
+
+function contextLink(item, subtitle) {
+  const card = document.createElement(item.url ? "button" : "article");
+  card.className = "review-context-card";
+  if (item.url) {
+    card.type = "button";
+    card.addEventListener("click", () => api.openExternal(item.url).catch(showError));
+  }
+  const heading = document.createElement("strong");
+  heading.textContent = item.title || item.name;
+  const detail = document.createElement("span");
+  detail.textContent = subtitle;
+  card.append(heading, detail);
+  return card;
+}
+
+function renderReview() {
+  const snapshot = state.review;
+  els.reviewButton.disabled = !state.activeThread;
+  setReviewTab(state.reviewTab);
+  if (!snapshot) {
+    els.reviewCopy.textContent = state.activeThread ? "Loading review context…" : "Open a project to review changes, collect test evidence, and prepare a draft pull request.";
+    els.reviewSummary.replaceChildren();
+    for (const container of [els.reviewChanges, els.reviewChecks, els.reviewEvidence, els.reviewIssues, els.reviewPulls, els.reviewRuns, els.reviewComments, els.reviewPolicy]) reviewEmpty(container, "No review context loaded.");
+    return;
+  }
+
+  const { review, github: githubState, policy, checks } = snapshot;
+  const pending = review.counts.workingHunks;
+  els.reviewBadge.hidden = !pending;
+  els.reviewBadge.textContent = String(pending);
+  els.reviewCopy.textContent = `${basename(review.repository)} · ${review.branch} · review before publishing`;
+  els.reviewSummary.replaceChildren(
+    reviewPill("working hunks", review.counts.workingHunks, review.counts.workingHunks ? "warn" : "good"),
+    reviewPill("staged hunks", review.counts.stagedHunks, review.counts.stagedHunks ? "good" : ""),
+    reviewPill("files", review.counts.files),
+    reviewPill("ahead", review.ahead),
+    reviewPill("behind", review.behind, review.behind ? "warn" : ""),
+  );
+
+  els.reviewChanges.replaceChildren();
+  if (!review.working.length && !review.staged.length) reviewEmpty(els.reviewChanges, "The working tree is clean.");
+  for (const file of review.working) els.reviewChanges.append(renderReviewFile(file));
+  if (review.staged.length) {
+    const stagedHeading = document.createElement("h4");
+    stagedHeading.className = "review-subheading";
+    stagedHeading.textContent = "Accepted and staged";
+    els.reviewChanges.append(stagedHeading);
+    for (const file of review.staged) els.reviewChanges.append(renderReviewFile(file, { staged: true }));
+  }
+
+  els.reviewChecks.replaceChildren();
+  if (!checks.length) reviewEmpty(els.reviewChecks, "No supported repository check was discovered.");
+  for (const check of checks) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary-button";
+    button.textContent = `Run ${check.label}`;
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      button.textContent = `Running ${check.label}…`;
+      try {
+        state.review = await api.runReviewCheck({ cwd: state.activeThread.cwd, checkId: check.id });
+        renderReview();
+        toast(`${check.label} finished`);
+      } catch (error) { button.disabled = false; button.textContent = `Run ${check.label}`; showError(error); }
+    });
+    els.reviewChecks.append(button);
+  }
+  els.reviewEvidence.replaceChildren();
+  if (!review.evidence.length) reviewEmpty(els.reviewEvidence, "Run a check to attach evidence to this review.");
+  for (const evidence of [...review.evidence].reverse()) {
+    const details = document.createElement("details");
+    details.className = `review-evidence ${evidence.passed ? "passed" : "failed"}`;
+    const summary = document.createElement("summary");
+    const label = document.createElement("strong");
+    label.textContent = evidence.label;
+    const result = document.createElement("span");
+    result.textContent = `${evidence.passed ? "passed" : "failed"} · ${(evidence.durationMs / 1000).toFixed(1)}s`;
+    summary.append(label, result);
+    const output = document.createElement("pre");
+    output.textContent = evidence.output || evidence.error || "No output.";
+    details.append(summary, output);
+    els.reviewEvidence.append(details);
+  }
+
+  els.reviewPushStatus.textContent = review.branch === "detached"
+    ? "Create a branch before pushing."
+    : review.upstream ? `${review.branch} tracks ${review.upstream}.` : `${review.branch} has no upstream yet.`;
+  els.reviewPush.disabled = review.branch === "detached";
+  els.reviewPrBase.value = els.reviewPrBase.value || githubState?.repository?.defaultBranch || "main";
+  els.reviewPrButton.disabled = !githubState?.available || review.branch === "detached";
+
+  els.githubReviewStatus.replaceChildren();
+  if (githubState?.available) {
+    els.githubReviewStatus.append(
+      reviewPill(githubState.repository.visibility, githubState.repository.name, "good"),
+      reviewPill("permission", githubState.repository.viewerPermission),
+      reviewPill("CLI", githubState.cliVersion || "ready"),
+    );
+  } else {
+    const message = document.createElement("div");
+    message.className = "review-github-unavailable";
+    const strong = document.createElement("strong");
+    strong.textContent = githubState?.reason || "GitHub context is unavailable.";
+    const detail = document.createElement("span");
+    detail.textContent = githubState?.error || "Install and authenticate GitHub CLI, then refresh.";
+    message.append(strong, detail);
+    els.githubReviewStatus.append(message);
+  }
+
+  const githubLists = [
+    [els.reviewIssues, githubState?.issues || [], (item) => contextLink({ ...item, title: `#${item.number} ${item.title}` }, [item.state, item.labels.join(", "), formatReviewDate(item.updatedAt)].filter(Boolean).join(" · "))],
+    [els.reviewPulls, githubState?.pulls || [], (item) => contextLink({ ...item, title: `#${item.number} ${item.title}` }, [item.draft ? "draft" : item.state, `${item.head} → ${item.base}`, item.reviewDecision, item.checks.length ? `${item.checks.filter((check) => ["SUCCESS", "success"].includes(check.conclusion)).length}/${item.checks.length} checks` : null].filter(Boolean).join(" · "))],
+    [els.reviewRuns, githubState?.runs || [], (item) => contextLink(item, [item.status, item.conclusion, item.branch, formatReviewDate(item.createdAt)].filter(Boolean).join(" · "))],
+    [els.reviewComments, githubState?.reviewComments || [], (item) => contextLink({ ...item, title: item.body }, [item.author, item.path && `${item.path}${item.line ? `:${item.line}` : ""}`, formatReviewDate(item.createdAt)].filter(Boolean).join(" · "))],
+  ];
+  for (const [container, items, factory] of githubLists) {
+    container.replaceChildren();
+    if (!items.length) reviewEmpty(container, githubState?.available ? "Nothing to show." : "GitHub CLI context unavailable.");
+    for (const item of items) container.append(factory(item));
+  }
+
+  els.reviewPolicy.replaceChildren();
+  if (policy.remote) {
+    const remote = document.createElement("article");
+    remote.className = "review-policy-card";
+    const heading = document.createElement("strong");
+    heading.textContent = policy.remote.error ? "Branch protection unavailable" : policy.remote.protected ? "Protected default branch" : "No branch protection reported";
+    const detail = document.createElement("span");
+    detail.textContent = policy.remote.error || [
+      policy.remote.requiredChecks.length ? `${policy.remote.requiredChecks.length} required checks` : "no required checks",
+      policy.remote.requiredReviews ? `${policy.remote.requiredReviews} required reviews` : "no required reviews",
+      policy.remote.requireCodeOwners ? "code owners required" : null,
+      policy.remote.requireConversationResolution ? "conversations must resolve" : null,
+    ].filter(Boolean).join(" · ");
+    remote.append(heading, detail);
+    els.reviewPolicy.append(remote);
+  }
+  const hooks = document.createElement("article");
+  hooks.className = "review-policy-card";
+  const hooksHeading = document.createElement("strong");
+  hooksHeading.textContent = "Git hooks path";
+  const hooksPath = document.createElement("code");
+  hooksPath.textContent = policy.hooksPath;
+  hooks.append(hooksHeading, hooksPath);
+  els.reviewPolicy.append(hooks);
+  for (const file of policy.files) {
+    const card = document.createElement("article");
+    card.className = "review-policy-card";
+    const main = document.createElement("div");
+    const kind = document.createElement("strong");
+    kind.textContent = file.kind;
+    const filePath = document.createElement("code");
+    filePath.textContent = file.path;
+    main.append(kind, filePath);
+    const show = document.createElement("button");
+    show.type = "button";
+    show.className = "secondary-button";
+    show.textContent = "Show file";
+    show.addEventListener("click", () => api.showReviewPolicy({ cwd: state.activeThread.cwd, policyPath: file.path }).catch(showError));
+    card.append(main, show);
+    els.reviewPolicy.append(card);
+  }
+  if (!els.reviewPolicy.childElementCount) reviewEmpty(els.reviewPolicy, "No repository policy files or branch rules were discovered.");
+}
+
+async function loadReview({ forceGitHub = false } = {}) {
+  if (!state.activeThread) return;
+  els.refreshReview.disabled = true;
+  try {
+    state.review = await api.reviewCenter({ cwd: state.activeThread.cwd, forceGitHub });
+    renderReview();
+  } catch (error) {
+    state.review = null;
+    renderReview();
+    showError(error);
+  } finally {
+    els.refreshReview.disabled = false;
+  }
+}
+
+function openReview() {
+  if (!state.activeThread) {
+    toast("Open a project before starting review");
+    return;
+  }
+  state.review = null;
+  renderReview();
+  showDialog(els.reviewOverlay, els.closeReview);
+  loadReview({ forceGitHub: true });
+}
+
 function diagnosticPill(label, condition) { const pill = document.createElement("span"); pill.className = `diagnostics-pill ${condition === "warn" ? "warn" : condition ? "good" : "bad"}`; pill.textContent = label; return pill; }
 async function openDiagnostics() {
   showDialog(els.diagnosticsOverlay, els.closeDiagnostics); els.diagnosticsContent.textContent = "Collecting diagnostics…"; els.diagnosticsStatus.replaceChildren();
@@ -945,6 +1292,11 @@ function renderDiff() {
   const changedCount = state.git?.entries?.length || [...state.diff.matchAll(/^diff --git /gm)].length;
   els.diffBadge.textContent = changedCount; els.diffSummary.textContent = `${state.git?.branch || "Repository"} · ${changedCount} change${changedCount === 1 ? "" : "s"}`;
   els.diffButton.disabled = !state.activeThread;
+  els.reviewButton.disabled = !state.activeThread;
+  if (!state.review) {
+    els.reviewBadge.hidden = !changedCount;
+    els.reviewBadge.textContent = String(changedCount);
+  }
   for (const tab of document.querySelectorAll("[data-diff-view]")) {
     const active = tab.dataset.diffView === state.diffView;
     tab.classList.toggle("active", active);
@@ -1579,6 +1931,13 @@ api.onEvent(async (event) => {
   else if (event.kind === "desktopPreferences") { state.desktop = event.desktop; renderDesktopPreferences(); }
   else if (event.kind === "updateState") { state.updates = event.updates; renderUpdateState(); }
   else if (event.kind === "tasksState") { state.tasks = event.tasks; renderTasks(); }
+  else if (event.kind === "captureReview") {
+    state.activeThread = event.thread;
+    state.review = event.snapshot;
+    state.reviewTab = "changes";
+    renderReview();
+    showDialog(els.reviewOverlay, els.closeReview);
+  }
   else if (event.kind === "quickPrompt") { if (state.activeThread) { els.prompt.value = event.text; updateComposer(); els.prompt.focus(); } else chooseAndStartThread(event.text).catch(showError); }
   else if (event.kind === "log" && /error/i.test(event.message)) console.warn(event.message);
 });
@@ -1740,10 +2099,92 @@ els.settings.addEventListener("click", () => {
 });
 els.extensions.addEventListener("click", openExtensions);
 els.tasksButton.addEventListener("click", openTasks);
+els.reviewButton.addEventListener("click", openReview);
 els.home.addEventListener("click", showHome);
 els.closeAuth.addEventListener("click", () => hideDialog(els.authOverlay, els.brandMenuButton));
 els.closeExtensions.addEventListener("click", () => hideDialog(els.extensionsOverlay, els.brandMenuButton));
 els.closeTasks.addEventListener("click", () => hideDialog(els.tasksOverlay, els.tasksButton));
+els.closeReview.addEventListener("click", () => hideDialog(els.reviewOverlay, els.reviewButton));
+els.refreshReview.addEventListener("click", () => loadReview({ forceGitHub: true }));
+for (const tab of els.reviewTabs.querySelectorAll("[data-review-tab]")) tab.addEventListener("click", () => setReviewTab(tab.dataset.reviewTab));
+els.reviewTabs.addEventListener("keydown", (event) => {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key) || !event.target.matches("[data-review-tab]")) return;
+  const tabs = [...els.reviewTabs.querySelectorAll("[data-review-tab]")];
+  const current = Math.max(0, tabs.indexOf(event.target));
+  const target = event.key === "Home" ? 0
+    : event.key === "End" ? tabs.length - 1
+      : event.key === "ArrowRight" ? (current + 1) % tabs.length
+        : (current - 1 + tabs.length) % tabs.length;
+  event.preventDefault();
+  tabs[target].focus();
+  tabs[target].click();
+});
+els.reviewBranchForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const branch = els.reviewBranchName.value.trim();
+  if (!branch || !state.activeThread) return;
+  const button = event.submitter;
+  button.disabled = true;
+  try {
+    const result = await api.createReviewBranch({ cwd: state.activeThread.cwd, branch });
+    state.review = result.snapshot;
+    if (!result.cancelled) { els.reviewBranchName.value = ""; toast(`Created ${branch}`); }
+    renderReview();
+    await refreshGit();
+  } catch (error) { showError(error); }
+  finally { button.disabled = false; }
+});
+els.reviewCommitForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const message = els.reviewCommitMessage.value.trim();
+  if (!message || !state.activeThread) return;
+  const button = event.submitter;
+  button.disabled = true;
+  try {
+    const result = await api.gitCommit({ cwd: state.activeThread.cwd, message });
+    if (!result.cancelled) {
+      els.reviewCommitMessage.value = "";
+      await loadReview({ forceGitHub: true });
+      await refreshGit();
+      toast(result.output?.split("\n")[0] || "Commit created");
+    }
+  } catch (error) { showError(error); }
+  finally { button.disabled = false; }
+});
+els.reviewPush.addEventListener("click", async () => {
+  if (!state.activeThread) return;
+  els.reviewPush.disabled = true;
+  try {
+    const result = await api.pushReviewBranch({ cwd: state.activeThread.cwd, remote: "origin" });
+    state.review = result.snapshot;
+    renderReview();
+    await refreshGit();
+    if (!result.cancelled) toast("Branch pushed");
+  } catch (error) { showError(error); }
+  finally { els.reviewPush.disabled = false; }
+});
+els.reviewPrForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!state.activeThread) return;
+  els.reviewPrButton.disabled = true;
+  try {
+    const result = await api.createDraftPullRequest({
+      cwd: state.activeThread.cwd,
+      title: els.reviewPrTitle.value,
+      body: els.reviewPrBody.value,
+      base: els.reviewPrBase.value,
+    });
+    state.review = result.snapshot;
+    renderReview();
+    if (!result.cancelled) {
+      toast("Draft pull request created");
+      if (result.result?.url) await api.openExternal(result.result.url);
+    }
+  } catch (error) { showError(error); }
+  finally { els.reviewPrButton.disabled = !state.review?.github?.available || state.review?.review?.branch === "detached"; }
+});
+els.copyTaskSummary.addEventListener("click", async () => { try { await api.copyTaskSummary(); toast("Redacted task summary copied"); } catch (error) { showError(error); } });
+els.copyShareableDiagnostics.addEventListener("click", async () => { try { await api.copyShareableDiagnostics(); toast("Shareable diagnostics copied"); } catch (error) { showError(error); } });
 els.refreshExtensions.addEventListener("click", () => loadExtensions({ forceReload: true }));
 els.chooseTaskRepository.addEventListener("click", async () => {
   try {
@@ -1783,7 +2224,7 @@ els.more.addEventListener("click", openDiagnostics); els.closeDiagnostics.addEve
 els.copyDiagnostics.addEventListener("click", async () => { try { await api.copyDiagnostics(); toast("Diagnostics copied"); } catch (error) { showError(error); } });
 els.exportDiagnostics.addEventListener("click", async () => { try { const filePath = await api.exportDiagnostics(); if (filePath) toast(`Diagnostics exported to ${filePath}`); } catch (error) { showError(error); } });
 els.showLog.addEventListener("click", () => api.showLogFile().catch(showError));
-for (const overlay of [els.tasksOverlay, els.authOverlay, els.extensionsOverlay, els.screenshotOverlay, els.cameraOverlay, els.diagnosticsOverlay]) {
+for (const overlay of [els.tasksOverlay, els.reviewOverlay, els.authOverlay, els.extensionsOverlay, els.screenshotOverlay, els.cameraOverlay, els.diagnosticsOverlay]) {
   overlay.addEventListener("click", closeOnBackdropClick);
 }
 document.addEventListener("click", (event) => {
@@ -1805,6 +2246,7 @@ document.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") { event.preventDefault(); chooseAndStartThread().catch(showError); }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "j") { event.preventDefault(); openTerminal(); }
   if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "b") { event.preventDefault(); openTasks(); }
+  if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "r") { event.preventDefault(); openReview(); }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); els.threadSearch.focus(); els.threadSearch.select(); }
   if ((event.ctrlKey || event.metaKey) && event.key === ",") { event.preventDefault(); openAuth(); }
   if (event.altKey && event.key === "ArrowLeft" && state.activeThread) { event.preventDefault(); showHome(); }
