@@ -14,6 +14,8 @@ function build(targets) {
     const child = spawn(builder, [
       "--linux",
       ...targets,
+      "--publish",
+      "never",
       `--config.publish.channel=${channel}`,
       `--config.publish.releaseType=${releaseType}`,
     ], { stdio: "inherit", env: process.env });
