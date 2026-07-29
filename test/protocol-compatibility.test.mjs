@@ -4,9 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  compareProtocolCompatibility,
   evaluateProtocolCompatibility,
   inspectCodexProtocol,
   methodsFromSchema,
+  PROTOCOL_COMPATIBILITY_MATRIX,
 } from "../src/main/protocol-compatibility.mjs";
 
 const completeMethods = {
@@ -40,6 +42,8 @@ test("extracts app-server method names from generated union schemas", () => {
 test("reports compatible, partial, and incompatible protocol surfaces", () => {
   const compatible = evaluateProtocolCompatibility(completeMethods, { checkedAt: "now" });
   assert.equal(compatible.status, "compatible");
+  assert.equal(compatible.profile.id, "creation-v2");
+  assert.match(compatible.schemaFingerprint, /^[a-f0-9]{24}$/);
   assert.equal(compatible.features.terminal.available, true);
   assert.equal(compatible.features.realtimeVoice.available, true);
 
@@ -54,6 +58,23 @@ test("reports compatible, partial, and incompatible protocol surfaces", () => {
   assert.equal(incompatible.status, "incompatible");
   assert.equal(incompatible.features.core.available, false);
   assert.ok(incompatible.missingMethods.includes("thread/start"));
+});
+
+test("compatibility matrix covers minimum, degraded, and current protocol profiles", () => {
+  assert.deepEqual(PROTOCOL_COMPATIBILITY_MATRIX.map((entry) => entry.id), ["core-v1", "desktop-v1", "extensions-v1", "creation-v2"]);
+  const coreOnly = {
+    clientRequests: new Set(["initialize", "thread/list", "thread/start", "thread/resume", "turn/start", "turn/interrupt", "model/list", "account/read"]),
+    clientNotifications: new Set(["initialized"]),
+    serverNotifications: new Set(["turn/started", "turn/completed", "item/started", "item/completed", "item/agentMessage/delta"]),
+    serverRequests: new Set(),
+  };
+  const baseline = evaluateProtocolCompatibility(coreOnly, { checkedAt: "baseline" });
+  assert.equal(baseline.status, "partial");
+  assert.equal(baseline.profile.id, "core-v1");
+  const change = compareProtocolCompatibility(baseline, evaluateProtocolCompatibility(completeMethods, { checkedAt: "current" }));
+  assert.equal(change.changed, true);
+  assert.equal(change.currentProfile, "creation-v2");
+  assert.equal(change.requiresAttention, false);
 });
 
 test("accepts legacy approval methods as compatible alternatives", () => {

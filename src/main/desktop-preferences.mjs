@@ -19,6 +19,7 @@ export const DEFAULT_DESKTOP_PREFERENCES = Object.freeze({
   textScale: 1,
   reduceMotion: false,
   highContrast: false,
+  screenReaderMode: false,
 });
 
 export function normalizeDesktopPreferences(value = {}) {
@@ -38,6 +39,7 @@ export function normalizeDesktopPreferences(value = {}) {
     textScale,
     reduceMotion: candidate.reduceMotion === true,
     highContrast: candidate.highContrast === true,
+    screenReaderMode: candidate.screenReaderMode === true,
   };
 }
 

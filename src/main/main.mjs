@@ -23,10 +23,14 @@ import {
 import { resolveCodexCommand, validateCodexCommand } from "./codex-locator.mjs";
 import { GitService } from "./git-service.mjs";
 import { GitHubService } from "./github-service.mjs";
-import { inspectCodexProtocol, unknownProtocolCompatibility } from "./protocol-compatibility.mjs";
+import { PerformanceLedger, validatePerformanceMetric } from "./performance-budgets.mjs";
+import { compareProtocolCompatibility, inspectCodexProtocol, unknownProtocolCompatibility } from "./protocol-compatibility.mjs";
+import { normalizeReportingPreferences, ReleaseReporter, releaseReport } from "./release-reporting.mjs";
 import { repositoryPolicySnapshot } from "./repository-policy.mjs";
 import { discoverReviewChecks, runReviewCheck } from "./review-service.mjs";
+import { securitySnapshot, trustedRendererUrl, validateAttachmentPath, validateExternalUrl } from "./security-policy.mjs";
 import { redactedDiagnosticsMarkdown, redactedTaskMarkdown } from "./share-summary.mjs";
+import { loadVersionedState, saveVersionedState } from "./state-storage.mjs";
 import { StructuredLogger } from "./structured-logger.mjs";
 import { TaskStore } from "./task-service.mjs";
 import { createTrayIconPng } from "./tray-icon.mjs";
@@ -69,6 +73,8 @@ let updateCheckTimer = null;
 let updateCheckInterval = null;
 let taskStore = null;
 let creationStore = null;
+let settingsStorage = null;
+let releaseReporter = null;
 let taskPumpRunning = false;
 let taskPumpScheduled = false;
 let taskRecoveryAttempted = false;
@@ -99,6 +105,13 @@ const github = new GitHubService();
 const reviewEvidence = new Map();
 const githubContextCache = new Map();
 const realtimeSessions = new Map();
+const performanceLedger = new PerformanceLedger();
+const SETTINGS_STATE_VERSION = 2;
+const SETTINGS_MIGRATIONS = {
+  0: (value) => ({ ...value, version: 1 }),
+  1: (value) => ({ ...value, version: 2, reporting: normalizeReportingPreferences(value.reporting) }),
+};
+const COMPANION_IPC_CHANNELS = new Set(["companion:context", "companion:submit"]);
 
 function taskStoragePath() {
   return path.join(app.getPath("userData"), "tasks.json");
@@ -116,7 +129,7 @@ function initializeCreation() {
   creationStore = new CreationStore(creationStoragePath(), {
     onChange: (creation) => sendEvent({ kind: "creationState", creation }),
   });
-  log("info", "creation.initialized", { templates: creationStore.templates.length, artifacts: creationStore.artifacts.length });
+  log(creationStore.storage?.status === "unrecoverable" ? "error" : creationStore.storage?.status === "recovered" ? "warn" : "info", "creation.initialized", { templates: creationStore.templates.length, artifacts: creationStore.artifacts.length, storage: creationStore.storage });
 }
 
 function taskWorktreeRoot() {
@@ -139,7 +152,7 @@ function initializeTasks() {
     onChange: (tasks) => sendEvent({ kind: "tasksState", tasks }),
   });
   const recovered = taskStore.recoverInterrupted();
-  log(recovered.length ? "warn" : "info", "tasks.initialized", { tasks: taskStore.tasks.length, recovered: recovered.length });
+  log(taskStore.storage?.status === "unrecoverable" ? "error" : recovered.length || taskStore.storage?.status === "recovered" ? "warn" : "info", "tasks.initialized", { tasks: taskStore.tasks.length, recovered: recovered.length, storage: taskStore.storage });
 }
 
 function sendEvent(payload) {
@@ -159,10 +172,7 @@ function attachmentDirectory() {
 }
 
 function attachmentInfo(candidate) {
-  if (!path.isAbsolute(candidate)) throw new Error("Attachment paths must be absolute");
-  const realPath = fs.realpathSync(candidate);
-  const stat = fs.statSync(realPath);
-  if (!stat.isFile()) throw new Error("Only files can be attached");
+  const { realPath, stat } = validateAttachmentPath(candidate);
   const isImage = imageExtensions.has(path.extname(realPath).toLowerCase());
   let preview = null;
   if (isImage && stat.size <= 25 * 1024 * 1024) {
@@ -184,15 +194,21 @@ function settingsPath() {
 }
 
 function readSettings() {
-  try { return JSON.parse(fs.readFileSync(settingsPath(), "utf8")); }
-  catch { return {}; }
+  const loaded = loadVersionedState(settingsPath(), {
+    currentVersion: SETTINGS_STATE_VERSION,
+    migrations: SETTINGS_MIGRATIONS,
+    defaults: { reporting: normalizeReportingPreferences() },
+  });
+  settingsStorage = loaded.meta;
+  return loaded.value;
 }
 
 function writeSettings(settings) {
-  fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
-  const temporaryPath = `${settingsPath()}.tmp`;
-  fs.writeFileSync(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(temporaryPath, settingsPath());
+  saveVersionedState(settingsPath(), settings, {
+    currentVersion: SETTINGS_STATE_VERSION,
+    writable: settingsStorage?.writable !== false,
+  });
+  settingsStorage = { status: "current", source: "primary", fromVersion: SETTINGS_STATE_VERSION, version: SETTINGS_STATE_VERSION, writable: true, error: null };
 }
 
 function desktopPreferences() {
@@ -201,6 +217,18 @@ function desktopPreferences() {
 
 function updatePreferences() {
   return normalizeUpdatePreferences(readSettings().updates);
+}
+
+function reportingPreferences() {
+  return normalizeReportingPreferences(readSettings().reporting);
+}
+
+function reportingSnapshot() {
+  return releaseReporter?.snapshot() || {
+    preferences: reportingPreferences(),
+    endpointConfigured: false,
+    lastResult: null,
+  };
 }
 
 function shortcutSnapshot() {
@@ -598,25 +626,48 @@ function handleTaskNotification(message) {
 }
 
 async function bootstrapData() {
-  const status = cliStatus();
-  compatibility = await inspectCodexProtocol(status.path);
-  log(compatibility.status === "compatible" ? "info" : compatibility.status === "partial" ? "warn" : "error", "codex.protocol_preflight", compatibility);
-  sendEvent({ kind: "compatibility", compatibility });
-  if (compatibility.status === "incompatible") {
-    const error = new Error(compatibility.message);
-    error.code = "CODEX_PROTOCOL_INCOMPATIBLE";
-    error.method = compatibility.missingMethod;
-    throw error;
-  }
-  const activeClient = await ensureConnected();
-  const [threads, models, account] = await Promise.all([
-    activeClient.request("thread/list", { limit: 100, sortKey: "updated_at", sortDirection: "desc" }),
-    activeClient.request("model/list", { limit: 100 }),
-    activeClient.request("account/read", { refreshToken: false }),
-  ]);
-  await recoverBackgroundTasks(activeClient);
-  log("info", "codex.bootstrap_complete", { threads: threads.data.length, models: models.data.length, authenticated: Boolean(account.account) });
-  return { threads: threads.data, models: models.data, account, cli: cliStatus(), compatibility, desktop: desktopState(), updates: updateSnapshot(), tasks: taskSnapshot(), creation: creationSnapshot(), lastThreadId: readSettings().lastThreadId || null };
+  return performanceLedger.measure("bootstrap", async () => {
+    const status = cliStatus();
+    const settings = readSettings();
+    compatibility = await inspectCodexProtocol(status.path);
+    compatibility.migration = compareProtocolCompatibility(settings.protocol, compatibility);
+    const protocolState = {
+      schemaFingerprint: compatibility.schemaFingerprint,
+      status: compatibility.status,
+      profile: compatibility.profile,
+      checkedAt: compatibility.checkedAt,
+    };
+    if (JSON.stringify(settings.protocol || null) !== JSON.stringify(protocolState)) {
+      try { writeSettings({ ...settings, protocol: protocolState }); }
+      catch (error) { log("warn", "state.settings_protocol_not_saved", { message: error.message, status: settingsStorage?.status }); }
+    }
+    if (compatibility.migration.changed || compatibility.status === "incompatible") {
+      void releaseReporter?.submit(releaseReport("compatibility", {
+        reason: compatibility.message,
+        codexVersion: await cliVersion(),
+        protocolStatus: compatibility.status,
+        protocolProfile: compatibility.profile?.id,
+        missingMethods: compatibility.missingMethods,
+      }, { appVersion: app.getVersion() })).catch((error) => log("warn", "reporting.compatibility_failed", { message: error.message }));
+    }
+    log(compatibility.status === "compatible" ? "info" : compatibility.status === "partial" ? "warn" : "error", "codex.protocol_preflight", compatibility);
+    sendEvent({ kind: "compatibility", compatibility });
+    if (compatibility.status === "incompatible") {
+      const error = new Error(compatibility.message);
+      error.code = "CODEX_PROTOCOL_INCOMPATIBLE";
+      error.method = compatibility.missingMethod;
+      throw error;
+    }
+    const activeClient = await ensureConnected();
+    const [threads, models, account] = await Promise.all([
+      activeClient.request("thread/list", { limit: 100, sortKey: "updated_at", sortDirection: "desc" }),
+      activeClient.request("model/list", { limit: 100 }),
+      activeClient.request("account/read", { refreshToken: false }),
+    ]);
+    await recoverBackgroundTasks(activeClient);
+    log("info", "codex.bootstrap_complete", { threads: threads.data.length, models: models.data.length, authenticated: Boolean(account.account) });
+    return { threads: threads.data, models: models.data, account, cli: cliStatus(), compatibility, desktop: desktopState(), updates: updateSnapshot(), reporting: reportingSnapshot(), tasks: taskSnapshot(), creation: creationSnapshot(), lastThreadId: readSettings().lastThreadId || null };
+  });
 }
 
 async function cliVersion() {
@@ -644,6 +695,16 @@ async function diagnosticsSnapshot() {
     deepLinks: deepLinkSnapshot(),
     updates: updateSnapshot(),
     notifications: notificationSnapshot(),
+    stability: {
+      state: {
+        settings: settingsStorage,
+        tasks: taskStore?.storage || null,
+        creation: creationStore?.storage || null,
+      },
+      performance: performanceLedger.snapshot(),
+      security: securitySnapshot(),
+      reporting: reportingSnapshot(),
+    },
     tasks: {
       counts: taskSnapshot().counts,
       limits: taskSnapshot().limits,
@@ -660,6 +721,31 @@ async function diagnosticsSnapshot() {
     activeThread: activeThreadContext ? { id: activeThreadContext.id, project: path.basename(activeThreadContext.cwd), title: activeThreadContext.title } : null,
     logFile: logger?.filePath || null,
   };
+}
+
+function initializeReporting() {
+  let endpoint = null;
+  try {
+    if (process.env.CODEX_LINUX_REPORTING_ENDPOINT) endpoint = validateExternalUrl(process.env.CODEX_LINUX_REPORTING_ENDPOINT).toString();
+  } catch (error) {
+    log("warn", "reporting.endpoint_rejected", { message: error.message });
+  }
+  releaseReporter = new ReleaseReporter({
+    preferences: reportingPreferences(),
+    endpoint,
+    transport: endpoint ? async (target, report) => {
+      const response = await fetch(target, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(report),
+        redirect: "error",
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (!response.ok) throw new Error(`Reporting endpoint returned HTTP ${response.status}`);
+    } : null,
+    onReport: (reporting) => sendEvent({ kind: "reportingState", reporting }),
+  });
+  log("info", "reporting.initialized", { enabled: releaseReporter.preferences.enabled, endpointConfigured: releaseReporter.snapshot().endpointConfigured });
 }
 
 function evidenceFor(cwd) {
@@ -816,18 +902,36 @@ async function showCodexConfig(filePath) {
   return target.path;
 }
 
+function assertTrustedIpcEvent(event, channel) {
+  const rendererRoot = path.join(__dirname, "../renderer");
+  const trustedUrl = trustedRendererUrl(event.senderFrame?.url || event.sender?.getURL?.() || "", rendererRoot);
+  const mainSender = event.sender === mainWindow?.webContents;
+  const companionSender = event.sender === companionWindow?.webContents && COMPANION_IPC_CHANNELS.has(channel);
+  if (!trustedUrl || (!mainSender && !companionSender)) {
+    log("warn", "security.ipc_rejected", { channel, senderUrl: event.sender?.getURL?.() || null });
+    throw new Error("This desktop action is not available from the requesting window");
+  }
+}
+
+function handleIpc(channel, handler) {
+  ipcMain.handle(channel, (event, ...args) => {
+    assertTrustedIpcEvent(event, channel);
+    return handler(event, ...args);
+  });
+}
+
 function registerIpc() {
-  ipcMain.handle("codex:bootstrap", async () => {
+  handleIpc("codex:bootstrap", async () => {
     try { return await bootstrapData(); }
     catch (error) { log("error", "codex.bootstrap_failed", { message: error.message, code: error.code, method: error.method }); throw error; }
   });
 
-  ipcMain.handle("codex:listThreads", async (_event, params = {}) => {
+  handleIpc("codex:listThreads", async (_event, params = {}) => {
     const activeClient = await ensureConnected();
     return activeClient.request("thread/list", { limit: 100, sortKey: "updated_at", sortDirection: "desc", ...params });
   });
 
-  ipcMain.handle("codex:startThread", async (_event, params) => {
+  handleIpc("codex:startThread", async (_event, params) => {
     const activeClient = await ensureConnected();
     if (!path.isAbsolute(params.cwd)) throw new Error("Choose an absolute project folder");
     const response = await activeClient.request("thread/start", {
@@ -842,20 +946,20 @@ function registerIpc() {
     return response;
   });
 
-  ipcMain.handle("codex:resumeThread", async (_event, threadId) => {
+  handleIpc("codex:resumeThread", async (_event, threadId) => {
     const activeClient = await ensureConnected();
     const response = await activeClient.request("thread/resume", { threadId });
     rememberThread({ id: response.thread.id, cwd: response.thread.cwd, title: response.thread.name || response.thread.preview || "Codex thread" });
     return response;
   });
 
-  ipcMain.handle("codex:showHome", () => {
+  handleIpc("codex:showHome", () => {
     rememberThread(null);
     log("info", "navigation.home");
     return true;
   });
 
-  ipcMain.handle("codex:sendTurn", async (_event, params) => {
+  handleIpc("codex:sendTurn", async (_event, params) => {
     const activeClient = await ensureConnected();
     return activeClient.request("turn/start", {
       threadId: params.threadId,
@@ -871,26 +975,26 @@ function registerIpc() {
     });
   });
 
-  ipcMain.handle("codex:interruptTurn", async (_event, params) => {
+  handleIpc("codex:interruptTurn", async (_event, params) => {
     const activeClient = await ensureConnected();
     return activeClient.request("turn/interrupt", params);
   });
 
-  ipcMain.handle("codex:answerRequest", (_event, { id, result }) => {
+  handleIpc("codex:answerRequest", (_event, { id, result }) => {
     getClient()?.respond(id, result);
     taskStore?.resolveRequest(String(id));
     return true;
   });
 
-  ipcMain.handle("codex:rejectRequest", (_event, { id, message }) => {
+  handleIpc("codex:rejectRequest", (_event, { id, message }) => {
     getClient()?.reject(id, -32000, message || "Request was not supported by this client");
     taskStore?.resolveRequest(String(id));
     return true;
   });
 
-  ipcMain.handle("codex:cliStatus", () => cliStatus());
+  handleIpc("codex:cliStatus", () => cliStatus());
 
-  ipcMain.handle("codex:chooseCli", async () => {
+  handleIpc("codex:chooseCli", async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
       title: "Locate the Codex CLI",
       message: "Select the executable named codex",
@@ -903,41 +1007,41 @@ function registerIpc() {
     return bootstrapData();
   });
 
-  ipcMain.handle("codex:loginChatGPT", async () => {
+  handleIpc("codex:loginChatGPT", async () => {
     const activeClient = await ensureConnected();
     const login = validateChatGptLoginResponse(await activeClient.request("account/login/start", chatGptLoginStartParams()));
-    await shell.openExternal(login.authUrl);
+    await shell.openExternal(validateExternalUrl(login.authUrl).toString());
     return { loginId: login.loginId };
   });
 
-  ipcMain.handle("codex:readAccount", async () => {
+  handleIpc("codex:readAccount", async () => {
     const activeClient = await ensureConnected();
     return activeClient.request("account/read", { refreshToken: true });
   });
 
-  ipcMain.handle("codex:logout", async () => {
+  handleIpc("codex:logout", async () => {
     const activeClient = await ensureConnected();
     return logoutAccount(activeClient);
   });
 
-  ipcMain.handle("desktop:chooseFolder", async () => {
+  handleIpc("desktop:chooseFolder", async () => {
     const result = await dialog.showOpenDialog(mainWindow, { properties: ["openDirectory", "createDirectory"] });
     return result.canceled ? null : result.filePaths[0];
   });
 
-  ipcMain.handle("desktop:chooseAttachments", async () => {
+  handleIpc("desktop:chooseAttachments", async () => {
     const result = await dialog.showOpenDialog(mainWindow, { title: "Attach files", properties: ["openFile", "multiSelections"] });
     return result.canceled ? [] : result.filePaths.map(attachmentInfo);
   });
 
-  ipcMain.handle("desktop:prepareAttachments", (_event, paths) => (paths || []).slice(0, 20).map(attachmentInfo));
+  handleIpc("desktop:prepareAttachments", (_event, paths) => (paths || []).slice(0, 20).map(attachmentInfo));
 
-  ipcMain.handle("desktop:clipboardImage", () => {
+  handleIpc("desktop:clipboardImage", () => {
     const image = clipboard.readImage();
     return image.isEmpty() ? null : saveImage(image, "clipboard");
   });
 
-  ipcMain.handle("desktop:captureSources", async () => {
+  handleIpc("desktop:captureSources", async () => {
     const sources = await desktopCapturer.getSources({ types: ["screen", "window"], thumbnailSize: { width: 1920, height: 1080 }, fetchWindowIcons: true });
     captureSources = new Map(sources.map((source) => [source.id, source]));
     return sources.map((source) => {
@@ -956,14 +1060,14 @@ function registerIpc() {
     });
   });
 
-  ipcMain.handle("desktop:captureSource", (_event, sourceId) => {
+  handleIpc("desktop:captureSource", (_event, sourceId) => {
     const source = captureSources.get(sourceId);
     if (!source) throw new Error("That screenshot source is no longer available");
     captureSources.clear();
     return saveImage(source.thumbnail, "screenshot");
   });
 
-  ipcMain.handle("desktop:captureSourceRegion", (_event, { sourceId, rect } = {}) => {
+  handleIpc("desktop:captureSourceRegion", (_event, { sourceId, rect } = {}) => {
     const source = captureSources.get(sourceId);
     if (!source) throw new Error("That screenshot source is no longer available");
     const crop = validateCropRectangle(rect, source.thumbnail.getSize(), { minimum: 4 });
@@ -972,14 +1076,14 @@ function registerIpc() {
     return saveImage(image, "region");
   });
 
-  ipcMain.handle("desktop:saveCameraFrame", (_event, dataUrl) => {
+  handleIpc("desktop:saveCameraFrame", (_event, dataUrl) => {
     const image = nativeImage.createFromDataURL(validateCameraFrameDataUrl(dataUrl));
     if (image.isEmpty()) throw new Error("The camera did not provide a usable image");
     validateCameraFrameSize(image.getSize());
     return saveImage(image, "camera");
   });
 
-  ipcMain.handle("desktop:notifyTerminal", (event, payload = {}) => {
+  handleIpc("desktop:notifyTerminal", (event, payload = {}) => {
     if (event.sender !== mainWindow?.webContents) throw new Error("Terminal notifications are limited to the main window");
     const processHandle = payload.processHandle;
     const terminalId = payload.terminalId;
@@ -1002,16 +1106,16 @@ function registerIpc() {
     return notification;
   });
 
-  ipcMain.handle("desktop:getPreferences", () => desktopState());
-  ipcMain.handle("tasks:get", () => taskSnapshot());
-  ipcMain.handle("tasks:create", async (_event, payload = {}) => {
+  handleIpc("desktop:getPreferences", () => desktopState());
+  handleIpc("tasks:get", () => taskSnapshot());
+  handleIpc("tasks:create", async (_event, payload = {}) => {
     const repository = await git.repositoryRoot(payload.repository);
     const task = taskStore.create({ ...payload, repository });
     log("info", "tasks.queued", { taskId: task.id, repository, isolation: task.isolation });
     scheduleTaskPump();
     return taskSnapshot();
   });
-  ipcMain.handle("tasks:cancel", async (_event, taskId) => {
+  handleIpc("tasks:cancel", async (_event, taskId) => {
     const task = taskStore.find(taskId);
     if (!task) throw new Error("Task was not found");
     if (task.threadId && task.turnId && ["running", "waiting", "recovering"].includes(task.state)) {
@@ -1022,16 +1126,16 @@ function registerIpc() {
     scheduleTaskPump();
     return taskSnapshot();
   });
-  ipcMain.handle("tasks:retry", (_event, taskId) => {
+  handleIpc("tasks:retry", (_event, taskId) => {
     taskStore.retry(taskId);
     scheduleTaskPump();
     return taskSnapshot();
   });
-  ipcMain.handle("tasks:dismissInbox", (_event, inboxId) => {
+  handleIpc("tasks:dismissInbox", (_event, inboxId) => {
     taskStore.dismissInbox(inboxId);
     return taskSnapshot();
   });
-  ipcMain.handle("tasks:showWorktree", async (_event, taskId) => {
+  handleIpc("tasks:showWorktree", async (_event, taskId) => {
     const task = taskStore.find(taskId);
     if (!task) throw new Error("Task was not found");
     const target = task.worktreePath || task.cwd;
@@ -1046,12 +1150,12 @@ function registerIpc() {
     if (result) throw new Error(result);
     return realTarget;
   });
-  ipcMain.handle("creation:get", () => creationSnapshot());
-  ipcMain.handle("creation:saveTemplate", (_event, payload = {}) => {
+  handleIpc("creation:get", () => creationSnapshot());
+  handleIpc("creation:saveTemplate", (_event, payload = {}) => {
     creationStore.saveTemplate(payload);
     return creationSnapshot();
   });
-  ipcMain.handle("creation:deleteTemplate", async (_event, templateId) => {
+  handleIpc("creation:deleteTemplate", async (_event, templateId) => {
     const template = creationSnapshot().templates.find((entry) => entry.id === templateId && !entry.builtin);
     if (!template) throw new Error("Custom task template was not found");
     const confirmation = await dialog.showMessageBox(mainWindow, {
@@ -1067,11 +1171,11 @@ function registerIpc() {
     if (confirmation.response !== 1) return { cancelled: true, creation: creationSnapshot() };
     return { cancelled: false, creation: creationStore.deleteTemplate(templateId) };
   });
-  ipcMain.handle("creation:saveArtifact", (_event, payload = {}) => {
+  handleIpc("creation:saveArtifact", (_event, payload = {}) => {
     creationStore.saveArtifact(payload);
     return creationSnapshot();
   });
-  ipcMain.handle("creation:deleteArtifact", async (_event, artifactId) => {
+  handleIpc("creation:deleteArtifact", async (_event, artifactId) => {
     const artifact = creationStore.artifact(artifactId);
     if (!artifact) throw new Error("Artifact was not found");
     const confirmation = await dialog.showMessageBox(mainWindow, {
@@ -1087,7 +1191,7 @@ function registerIpc() {
     if (confirmation.response !== 1) return { cancelled: true, creation: creationSnapshot() };
     return { cancelled: false, creation: creationStore.deleteArtifact(artifactId) };
   });
-  ipcMain.handle("creation:exportArtifact", async (_event, artifactId) => {
+  handleIpc("creation:exportArtifact", async (_event, artifactId) => {
     const artifact = creationStore.artifact(artifactId);
     if (!artifact) throw new Error("Artifact was not found");
     const safeName = artifact.title.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "artifact";
@@ -1100,7 +1204,7 @@ function registerIpc() {
     fs.writeFileSync(result.filePath, artifact.body, { mode: 0o600 });
     return result.filePath;
   });
-  ipcMain.handle("creation:attachArtifact", (_event, artifactId) => {
+  handleIpc("creation:attachArtifact", (_event, artifactId) => {
     const artifact = creationStore.artifact(artifactId);
     if (!artifact) throw new Error("Artifact was not found");
     const safeName = artifact.title.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "artifact";
@@ -1108,7 +1212,7 @@ function registerIpc() {
     fs.writeFileSync(filePath, artifact.body, { mode: 0o600, flag: "wx" });
     return attachmentInfo(filePath);
   });
-  ipcMain.handle("creation:search", async (_event, { query, repository = null } = {}) => {
+  handleIpc("creation:search", async (_event, { query, repository = null } = {}) => {
     const cleanQuery = typeof query === "string" ? query.trim().slice(0, 200) : "";
     if (cleanQuery.length < 2) throw new Error("Enter at least two search characters");
     if (repository && (!activeThreadContext?.cwd || !path.isAbsolute(repository) || fs.realpathSync(repository) !== fs.realpathSync(activeThreadContext.cwd))) throw new Error("Search is limited to the active repository");
@@ -1148,7 +1252,7 @@ function registerIpc() {
       repository: root,
     });
   });
-  ipcMain.handle("creation:showFile", async (_event, { repository, relativePath } = {}) => {
+  handleIpc("creation:showFile", async (_event, { repository, relativePath } = {}) => {
     if (!activeThreadContext?.cwd || !path.isAbsolute(repository) || fs.realpathSync(repository) !== fs.realpathSync(activeThreadContext.cwd)) throw new Error("Search results are limited to the active repository");
     if (typeof relativePath !== "string" || path.isAbsolute(relativePath) || relativePath.includes("\0")) throw new Error("Search result path is invalid");
     const candidate = fs.realpathSync(path.join(repository, relativePath));
@@ -1157,7 +1261,7 @@ function registerIpc() {
     shell.showItemInFolder(candidate);
     return true;
   });
-  ipcMain.handle("voice:get", async () => {
+  handleIpc("voice:get", async () => {
     if (!compatibility.features?.realtimeVoice?.available) return { available: false, reason: "Update Codex to a version that advertises the realtime voice protocol." };
     try {
       const activeClient = await ensureConnected();
@@ -1168,7 +1272,7 @@ function registerIpc() {
       return { available: false, reason: String(error.message || "Realtime voice is unavailable").slice(0, 500), experimental: true };
     }
   });
-  ipcMain.handle("voice:start", async (_event, { threadId, mode = "dictation", voice = null } = {}) => {
+  handleIpc("voice:start", async (_event, { threadId, mode = "dictation", voice = null } = {}) => {
     if (!compatibility.features?.realtimeVoice?.available) throw new Error("This Codex CLI does not advertise realtime voice");
     if (!activeThreadContext || threadId !== activeThreadContext.id) throw new Error("Voice is limited to the active Codex thread");
     if (!["dictation", "conversation"].includes(mode)) throw new Error("Voice mode is invalid");
@@ -1188,29 +1292,29 @@ function registerIpc() {
     realtimeSessions.set(threadId, { mode, startedAt: Date.now() });
     return { active: true, mode };
   });
-  ipcMain.handle("voice:appendAudio", async (_event, { threadId, audio } = {}) => {
+  handleIpc("voice:appendAudio", async (_event, { threadId, audio } = {}) => {
     if (!activeThreadContext || threadId !== activeThreadContext.id || !realtimeSessions.has(threadId)) throw new Error("No realtime voice session is active for this thread");
     const activeClient = await ensureConnected();
     await activeClient.request("thread/realtime/appendAudio", { threadId, audio: validateRealtimeAudioChunk(audio) });
     return true;
   });
-  ipcMain.handle("voice:stop", async (_event, threadId) => {
+  handleIpc("voice:stop", async (_event, threadId) => {
     if (!activeThreadContext || threadId !== activeThreadContext.id) throw new Error("Voice is limited to the active Codex thread");
     const activeClient = await ensureConnected();
     if (realtimeSessions.has(threadId)) await activeClient.request("thread/realtime/stop", { threadId });
     realtimeSessions.delete(threadId);
     return { active: false };
   });
-  ipcMain.handle("extensions:get", (_event, options = {}) => extensionSnapshot({ forceReload: options?.forceReload === true }));
-  ipcMain.handle("extensions:setEnabled", (_event, payload) => setExtensionEnabled(payload));
-  ipcMain.handle("extensions:showConfig", (_event, filePath) => showCodexConfig(filePath));
-  ipcMain.handle("desktop:deepLinksReady", (event) => {
+  handleIpc("extensions:get", (_event, options = {}) => extensionSnapshot({ forceReload: options?.forceReload === true }));
+  handleIpc("extensions:setEnabled", (_event, payload) => setExtensionEnabled(payload));
+  handleIpc("extensions:showConfig", (_event, filePath) => showCodexConfig(filePath));
+  handleIpc("desktop:deepLinksReady", (event) => {
     if (event.sender !== mainWindow?.webContents) throw new Error("Deep-link readiness is limited to the main window");
     deepLinkRendererReady = true;
     flushDeepLinkActions();
     return deepLinkSnapshot();
   });
-  ipcMain.handle("desktop:updatePreferences", (_event, updates = {}) => {
+  handleIpc("desktop:updatePreferences", (_event, updates = {}) => {
     if (!updates || typeof updates !== "object" || Array.isArray(updates)) throw new TypeError("Desktop preference updates must be an object");
     if (Object.hasOwn(updates, "launchAtLogin")) {
       if (typeof updates.launchAtLogin !== "boolean") throw new TypeError("Launch at login must be enabled or disabled");
@@ -1226,9 +1330,43 @@ function registerIpc() {
     sendEvent({ kind: "desktopPreferences", desktop: result });
     return result;
   });
+  handleIpc("stability:get", () => ({
+    state: {
+      settings: settingsStorage,
+      tasks: taskStore?.storage || null,
+      creation: creationStore?.storage || null,
+    },
+    performance: performanceLedger.snapshot(),
+    security: securitySnapshot(),
+    reporting: reportingSnapshot(),
+  }));
+  handleIpc("stability:setReporting", (_event, value = {}) => {
+    const preferences = normalizeReportingPreferences(value);
+    const settings = readSettings();
+    writeSettings({ ...settings, reporting: preferences });
+    const reporting = releaseReporter.setPreferences(preferences);
+    log("info", "reporting.preferences_updated", { enabled: preferences.enabled, endpointConfigured: reporting.endpointConfigured });
+    sendEvent({ kind: "reportingState", reporting });
+    return reporting;
+  });
+  handleIpc("stability:copyCompatibilityReport", async () => {
+    const report = releaseReport("compatibility", {
+      reason: compatibility.message,
+      codexVersion: await cliVersion(),
+      protocolStatus: compatibility.status,
+      protocolProfile: compatibility.profile?.id,
+      missingMethods: compatibility.missingMethods,
+    }, { appVersion: app.getVersion() });
+    clipboard.writeText(`${JSON.stringify(report, null, 2)}\n`);
+    return true;
+  });
+  handleIpc("performance:report", (_event, value) => {
+    const metric = validatePerformanceMetric(value);
+    return performanceLedger.record(metric.name, metric.durationMs);
+  });
 
-  ipcMain.handle("updates:getState", () => updateSnapshot());
-  ipcMain.handle("updates:setPreferences", (_event, value = {}) => {
+  handleIpc("updates:getState", () => updateSnapshot());
+  handleIpc("updates:setPreferences", (_event, value = {}) => {
     const preferences = normalizeUpdatePreferences(value);
     const result = updateService.setPreferences(preferences);
     const settings = readSettings();
@@ -1237,23 +1375,23 @@ function registerIpc() {
     log("info", "updater.preferences_updated", preferences);
     return result;
   });
-  ipcMain.handle("updates:check", () => updateService.check());
-  ipcMain.handle("updates:download", () => updateService.download());
-  ipcMain.handle("updates:install", () => {
+  handleIpc("updates:check", () => updateService.check());
+  handleIpc("updates:download", () => updateService.download());
+  handleIpc("updates:install", () => {
     isQuitting = true;
     updateService.install();
     return true;
   });
-  ipcMain.handle("updates:openReleases", () => shell.openExternal("https://github.com/zk274/linuxcodexzk/releases"));
+  handleIpc("updates:openReleases", () => shell.openExternal(validateExternalUrl("https://github.com/zk274/linuxcodexzk/releases").toString()));
 
-  ipcMain.handle("git:status", async (_event, cwd) => {
+  handleIpc("git:status", async (_event, cwd) => {
     return git.status(cwd);
   });
 
-  ipcMain.handle("git:diff", async (_event, { cwd, staged = false, file = null }) => git.diff(cwd, { staged, file }));
-  ipcMain.handle("git:stage", async (_event, { cwd, paths }) => git.stage(activeRepository(cwd), paths));
-  ipcMain.handle("git:unstage", async (_event, { cwd, paths }) => git.unstage(activeRepository(cwd), paths));
-  ipcMain.handle("git:discard", async (_event, { cwd, paths }) => {
+  handleIpc("git:diff", async (_event, { cwd, staged = false, file = null }) => git.diff(cwd, { staged, file }));
+  handleIpc("git:stage", async (_event, { cwd, paths }) => git.stage(activeRepository(cwd), paths));
+  handleIpc("git:unstage", async (_event, { cwd, paths }) => git.unstage(activeRepository(cwd), paths));
+  handleIpc("git:discard", async (_event, { cwd, paths }) => {
     activeRepository(cwd);
     const status = await git.status(cwd);
     const selected = status.entries.filter((entry) => paths.includes(entry.path));
@@ -1267,7 +1405,7 @@ function registerIpc() {
     if (response !== 0) return { cancelled: true, status };
     return { cancelled: false, status: await git.discard(cwd, paths) };
   });
-  ipcMain.handle("git:commit", async (_event, { cwd, message }) => {
+  handleIpc("git:commit", async (_event, { cwd, message }) => {
     activeRepository(cwd);
     const { response } = await dialog.showMessageBox(mainWindow, {
       type: "question", title: "Create Git commit?", message: "Commit the currently staged changes?", detail: message?.trim() || "No commit message",
@@ -1277,8 +1415,8 @@ function registerIpc() {
     return { cancelled: false, ...(await git.commit(cwd, message)) };
   });
 
-  ipcMain.handle("review:get", (_event, { cwd, forceGitHub = false } = {}) => reviewCenterSnapshot(cwd, { forceGitHub }));
-  ipcMain.handle("review:decideHunk", async (_event, { cwd, hunkId, decision } = {}) => {
+  handleIpc("review:get", (_event, { cwd, forceGitHub = false } = {}) => reviewCenterSnapshot(cwd, { forceGitHub }));
+  handleIpc("review:decideHunk", async (_event, { cwd, hunkId, decision } = {}) => {
     const repository = await reviewRepository(cwd);
     if (decision === "reject") {
       const { response } = await dialog.showMessageBox(mainWindow, {
@@ -1297,7 +1435,7 @@ function registerIpc() {
     log("info", "review.hunk_decided", { decision });
     return { cancelled: false, snapshot: await reviewCenterSnapshot(repository) };
   });
-  ipcMain.handle("review:runCheck", async (_event, { cwd, checkId } = {}) => {
+  handleIpc("review:runCheck", async (_event, { cwd, checkId } = {}) => {
     const repository = await reviewRepository(cwd);
     const evidence = await runReviewCheck(repository, checkId);
     const entries = [...evidenceFor(repository), evidence].slice(-20);
@@ -1305,7 +1443,7 @@ function registerIpc() {
     log(evidence.passed ? "info" : "warn", "review.check_completed", { checkId: evidence.checkId, passed: evidence.passed, exitCode: evidence.exitCode, durationMs: evidence.durationMs });
     return reviewCenterSnapshot(repository);
   });
-  ipcMain.handle("review:createBranch", async (_event, { cwd, branch } = {}) => {
+  handleIpc("review:createBranch", async (_event, { cwd, branch } = {}) => {
     const repository = await reviewRepository(cwd);
     const { response } = await dialog.showMessageBox(mainWindow, {
       type: "question",
@@ -1322,7 +1460,7 @@ function registerIpc() {
     githubContextCache.delete(repository);
     return { cancelled: false, snapshot: await reviewCenterSnapshot(repository, { forceGitHub: true }) };
   });
-  ipcMain.handle("review:push", async (_event, { cwd, remote = "origin" } = {}) => {
+  handleIpc("review:push", async (_event, { cwd, remote = "origin" } = {}) => {
     const repository = await reviewRepository(cwd);
     const status = await git.status(repository);
     const { response } = await dialog.showMessageBox(mainWindow, {
@@ -1340,7 +1478,7 @@ function registerIpc() {
     githubContextCache.delete(repository);
     return { cancelled: false, snapshot: await reviewCenterSnapshot(repository, { forceGitHub: true }) };
   });
-  ipcMain.handle("review:createDraftPr", async (_event, { cwd, title, body, base } = {}) => {
+  handleIpc("review:createDraftPr", async (_event, { cwd, title, body, base } = {}) => {
     const repository = await reviewRepository(cwd);
     const status = await git.status(repository);
     const { response } = await dialog.showMessageBox(mainWindow, {
@@ -1358,7 +1496,7 @@ function registerIpc() {
     githubContextCache.delete(repository);
     return { cancelled: false, result, snapshot: await reviewCenterSnapshot(repository, { forceGitHub: true }) };
   });
-  ipcMain.handle("review:showPolicy", async (_event, { cwd, policyPath } = {}) => {
+  handleIpc("review:showPolicy", async (_event, { cwd, policyPath } = {}) => {
     const repository = await reviewRepository(cwd);
     if (typeof policyPath !== "string" || path.isAbsolute(policyPath)) throw new Error("Policy path must be relative to the repository");
     const target = path.resolve(repository, policyPath);
@@ -1367,16 +1505,16 @@ function registerIpc() {
     shell.showItemInFolder(target);
     return true;
   });
-  ipcMain.handle("review:copyTaskSummary", () => {
+  handleIpc("review:copyTaskSummary", () => {
     clipboard.writeText(redactedTaskMarkdown(taskSnapshot()));
     return true;
   });
-  ipcMain.handle("review:copyDiagnostics", async () => {
+  handleIpc("review:copyDiagnostics", async () => {
     clipboard.writeText(redactedDiagnosticsMarkdown(await diagnosticsSnapshot()));
     return true;
   });
 
-  ipcMain.handle("terminal:start", async (_event, { cwd, cols = 100, rows = 28 }) => {
+  handleIpc("terminal:start", async (_event, { cwd, cols = 100, rows = 28 }) => {
     const activeClient = await ensureConnected();
     const processHandle = `terminal-${randomUUID()}`;
     const command = [process.env.SHELL || "/bin/bash", "-l"];
@@ -1384,23 +1522,23 @@ function registerIpc() {
     return { processHandle, command: command[0] };
   });
 
-  ipcMain.handle("terminal:write", async (_event, { processHandle, data }) => {
+  handleIpc("terminal:write", async (_event, { processHandle, data }) => {
     const activeClient = await ensureConnected();
     return activeClient.request("process/writeStdin", { processHandle, deltaBase64: Buffer.from(data, "utf8").toString("base64"), closeStdin: false });
   });
 
-  ipcMain.handle("terminal:resize", async (_event, { processHandle, cols, rows }) => {
+  handleIpc("terminal:resize", async (_event, { processHandle, cols, rows }) => {
     const activeClient = await ensureConnected();
     return activeClient.request("process/resizePty", { processHandle, size: { cols, rows } });
   });
 
-  ipcMain.handle("terminal:kill", async (_event, processHandle) => {
+  handleIpc("terminal:kill", async (_event, processHandle) => {
     const activeClient = await ensureConnected();
     return activeClient.request("process/kill", { processHandle });
   });
 
-  ipcMain.handle("companion:context", () => ({ thread: activeThreadContext, shortcut: shortcutAccelerator }));
-  ipcMain.handle("companion:submit", async (_event, text) => {
+  handleIpc("companion:context", () => ({ thread: activeThreadContext, shortcut: shortcutAccelerator }));
+  handleIpc("companion:submit", async (_event, text) => {
     if (!text?.trim()) return { submitted: false };
     if (!activeThreadContext) {
       mainWindow.show(); mainWindow.focus(); sendEvent({ kind: "quickPrompt", text: text.trim() });
@@ -1412,18 +1550,17 @@ function registerIpc() {
     return { submitted: true };
   });
 
-  ipcMain.handle("desktop:openExternal", async (_event, rawUrl) => {
-    const url = new URL(rawUrl);
-    if (url.protocol !== "https:") throw new Error("Only HTTPS links can be opened");
+  handleIpc("desktop:openExternal", async (_event, rawUrl) => {
+    const url = validateExternalUrl(rawUrl);
     await shell.openExternal(url.toString());
   });
 
-  ipcMain.handle("diagnostics:get", () => diagnosticsSnapshot());
-  ipcMain.handle("diagnostics:copy", async () => {
+  handleIpc("diagnostics:get", () => diagnosticsSnapshot());
+  handleIpc("diagnostics:copy", async () => {
     clipboard.writeText(redactedDiagnosticsMarkdown(await diagnosticsSnapshot()));
     return true;
   });
-  ipcMain.handle("diagnostics:export", async () => {
+  handleIpc("diagnostics:export", async () => {
     const result = await dialog.showSaveDialog(mainWindow, {
       title: "Export diagnostics",
       defaultPath: path.join(app.getPath("documents"), `codex-linux-diagnostics-${new Date().toISOString().replace(/[:.]/g, "-")}.json`),
@@ -1435,7 +1572,25 @@ function registerIpc() {
     log("info", "diagnostics.exported", { path: result.filePath });
     return result.filePath;
   });
-  ipcMain.handle("diagnostics:showLog", () => { if (logger?.filePath) shell.showItemInFolder(logger.filePath); });
+  handleIpc("diagnostics:showLog", () => { if (logger?.filePath) shell.showItemInFolder(logger.filePath); });
+}
+
+function secureWebContents(webContents) {
+  const rendererRoot = path.join(__dirname, "../renderer");
+  webContents.on("will-navigate", (event, url) => {
+    if (trustedRendererUrl(url, rendererRoot)) return;
+    event.preventDefault();
+    log("warn", "security.navigation_rejected", { url: String(url).slice(0, 500) });
+  });
+  webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      const external = validateExternalUrl(url);
+      void shell.openExternal(external.toString());
+    } catch (error) {
+      log("warn", "security.window_open_rejected", { message: error.message });
+    }
+    return { action: "deny" };
+  });
 }
 
 function createWindow({ show = true } = {}) {
@@ -1455,6 +1610,7 @@ function createWindow({ show = true } = {}) {
       sandbox: true,
     },
   });
+  secureWebContents(mainWindow.webContents);
   const windowSession = mainWindow.webContents.session;
   mainWindow.webContents.on("did-start-loading", () => { deepLinkRendererReady = false; });
   windowSession.setPermissionCheckHandler((webContents, permission, _requestingOrigin, details = {}) => cameraPermissionCheckAllowed({
@@ -1481,7 +1637,7 @@ function createWindow({ show = true } = {}) {
     mainWindow = null;
     if (!isQuitting) app.quit();
   });
-  const captureArgument = process.argv.find((argument) => argument.startsWith("--capture-ui=") || argument.startsWith("--capture-long-thread-ui=") || argument.startsWith("--capture-titlebar-menu-ui=") || argument.startsWith("--capture-diagnostics-ui=") || argument.startsWith("--capture-settings-ui=") || argument.startsWith("--capture-tasks-ui=") || /^--capture-review(?:-(?:ship|github|policy))?-ui=/.test(argument) || /^--capture-studio(?:-(?:search|templates|voice))?-ui=/.test(argument) || argument.startsWith("--capture-extensions-ui=") || argument.startsWith("--capture-accessibility-ui=") || argument.startsWith("--capture-updates-ui=") || argument.startsWith("--capture-region-ui=") || argument.startsWith("--capture-camera-ui=") || argument.startsWith("--capture-live-camera-ui=") || argument.startsWith("--capture-camera-attachment-ui="));
+  const captureArgument = process.argv.find((argument) => argument.startsWith("--capture-ui=") || argument.startsWith("--capture-long-thread-ui=") || argument.startsWith("--capture-titlebar-menu-ui=") || argument.startsWith("--capture-diagnostics-ui=") || argument.startsWith("--capture-settings-ui=") || argument.startsWith("--capture-stability-ui=") || argument.startsWith("--capture-tasks-ui=") || /^--capture-review(?:-(?:ship|github|policy))?-ui=/.test(argument) || /^--capture-studio(?:-(?:search|templates|voice))?-ui=/.test(argument) || argument.startsWith("--capture-extensions-ui=") || argument.startsWith("--capture-accessibility-ui=") || argument.startsWith("--capture-updates-ui=") || argument.startsWith("--capture-region-ui=") || argument.startsWith("--capture-camera-ui=") || argument.startsWith("--capture-live-camera-ui=") || argument.startsWith("--capture-camera-attachment-ui="));
   if (captureArgument) mainWindow.webContents.once("did-finish-load", () => setTimeout(async () => {
     if (captureArgument.startsWith("--capture-long-thread-ui=")) {
       await mainWindow.webContents.executeJavaScript(`(() => {
@@ -1559,6 +1715,19 @@ function createWindow({ show = true } = {}) {
       await new Promise((resolve) => setTimeout(resolve, 500));
     } else if (captureArgument.startsWith("--capture-settings-ui=")) {
       await mainWindow.webContents.executeJavaScript("document.querySelector('#accountButton').click()");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    } else if (captureArgument.startsWith("--capture-stability-ui=")) {
+      await mainWindow.webContents.executeJavaScript(`(async () => {
+        document.querySelector("#accountButton").click();
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const card = document.querySelector("#authOverlay .auth-dialog");
+        card.scrollTop = card.scrollHeight;
+        const reporting = document.querySelector("#reportingEnabledInput");
+        const preview = document.querySelector("#copyCompatibilityReportButton");
+        if (!reporting || !preview || reporting.checked) {
+          throw new Error("Privacy and stability settings validation failed");
+        }
+      })()`);
       await new Promise((resolve) => setTimeout(resolve, 500));
     } else if (captureArgument.startsWith("--capture-tasks-ui=")) {
       if (!taskStore.tasks.length) {
@@ -1639,7 +1808,7 @@ function createWindow({ show = true } = {}) {
       }
     } else if (/^--capture-studio(?:-(?:search|templates|voice))?-ui=/.test(captureArgument)) {
       const repository = process.cwd();
-      activeThreadContext = { id: "capture-studio-thread", cwd: repository, title: "Create the 0.8 workspace" };
+      activeThreadContext = { id: "capture-studio-thread", cwd: repository, title: "Create the 0.9 release notes" };
       const now = Date.now();
       const captureTab = captureArgument.startsWith("--capture-studio-search-ui=")
         ? "search"
@@ -1658,7 +1827,7 @@ function createWindow({ show = true } = {}) {
             { id: "capture-template", name: "Ship a milestone", description: "Finish, verify, and prepare a private milestone.", prompt: "Finish the milestone and run the complete release gate.", isolation: "worktree", baseRef: "HEAD", model: null, effort: "high", builtin: false, createdAt: now, updatedAt: now },
           ],
           artifacts: [
-            { id: "capture-plan", title: "0.8 richer creation plan", kind: "plan", body: "# 0.8 — Richer creation\n\nBuild a focused creation workspace beside every Codex thread.\n\n## Release gates\n\n- Keyboard-complete UI\n- Local-first persistence\n- Verified Linux packages", repository, createdAt: now, updatedAt: now },
+            { id: "capture-plan", title: "0.9 stabilization plan", kind: "plan", body: "# 0.9 — Stabilization\n\nMake the local-first Codex workspace dependable and inspectable.\n\n## Release gates\n\n- Versioned state recovery\n- Security and accessibility review\n- Verified Linux packages", repository, createdAt: now, updatedAt: now },
             { id: "capture-spec", title: "Voice safety boundary", kind: "specification", body: "# Voice boundary\n\nStream audio only during an active session.", repository, createdAt: now - 60_000, updatedAt: now - 60_000 },
           ],
         },
@@ -1666,7 +1835,7 @@ function createWindow({ show = true } = {}) {
         searchResults: [
           { kind: "thread", id: "thread-result", title: "Richer creation milestone", detail: "Implement Canvas, local search, templates, and voice.", threadId: "capture-studio-thread", project: "linuxcodexzk", updatedAt: now },
           { kind: "task", id: "task-result", title: "Verify packaged creation tools", detail: "Completed all artifact and accessibility checks.", taskId: "capture-task", state: "completed", updatedAt: now - 1_000 },
-          { kind: "artifact", id: "artifact-result", title: "0.8 richer creation plan", detail: "Build a focused creation workspace beside every Codex thread.", artifactId: "capture-plan", artifactKind: "plan", updatedAt: now - 2_000 },
+          { kind: "artifact", id: "artifact-result", title: "0.9 stabilization plan", detail: "Make the local-first Codex workspace dependable and inspectable.", artifactId: "capture-plan", artifactKind: "plan", updatedAt: now - 2_000 },
           { kind: "file", id: "file-result", title: "src/main/creation-service.mjs", detail: "CreationStore provides durable local artifacts and task templates.", repository, relativePath: "src/main/creation-service.mjs", updatedAt: now - 3_000 },
         ],
       });
@@ -1801,10 +1970,6 @@ function createWindow({ show = true } = {}) {
     fs.writeFileSync(notificationTestArgument.slice(notificationTestArgument.indexOf("=") + 1), `${JSON.stringify({ ...result, supported: notificationSnapshot().supported })}\n`);
     setTimeout(() => app.quit(), 1500);
   }, 2500));
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("https://")) shell.openExternal(url);
-    return { action: "deny" };
-  });
 }
 
 function showMainWindow() {
@@ -1891,6 +2056,7 @@ function createCompanionWindow() {
     alwaysOnTop: true, skipTaskbar: true, backgroundColor: "#20211d",
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
+  secureWebContents(companionWindow.webContents);
   companionWindow.loadFile(path.join(__dirname, "../renderer/companion.html"));
   companionWindow.on("blur", () => companionWindow.hide());
 }
@@ -2043,12 +2209,14 @@ if (singleInstanceLockAcquired) app.on("second-instance", (_event, argv, _workin
 });
 
 if (singleInstanceLockAcquired) app.whenReady().then(() => {
+  performanceLedger.record("appReady", Date.now() - startedAt);
   sessionMarkerPath = path.join(app.getPath("userData"), "running.lock");
   previousUncleanShutdown = fs.existsSync(sessionMarkerPath);
   fs.mkdirSync(path.dirname(sessionMarkerPath), { recursive: true });
   fs.writeFileSync(sessionMarkerPath, String(process.pid), { mode: 0o600 });
   logger = new StructuredLogger(path.join(app.getPath("userData"), "logs", "app.jsonl"));
   log("info", "app.started", { version: app.getVersion(), packaged: app.isPackaged, platform: process.platform, arch: process.arch, previousUncleanShutdown });
+  initializeReporting();
   initializeAutostart();
   initializeUpdater();
   initializeTasks();
@@ -2089,11 +2257,16 @@ app.on("will-quit", () => {
 });
 app.on("render-process-gone", (_event, webContents, details) => {
   log("error", "electron.renderer_gone", { reason: details.reason, exitCode: details.exitCode, url: webContents.getURL() });
+  void releaseReporter?.submit(releaseReport("crash", { reason: `renderer:${details.reason}` }, { appVersion: app.getVersion() })).catch((error) => log("warn", "reporting.crash_failed", { message: error.message }));
   dialog.showMessageBox({ type: "error", title: "Codex Linux stopped unexpectedly", message: `The interface stopped unexpectedly (${details.reason}).`, detail: "A redacted crash event was written to the diagnostics log.", buttons: ["Restart app", "Quit"], defaultId: 0 }).then(({ response }) => {
     if (response === 0) { exitingAfterCrash = true; app.relaunch(); app.exit(1); } else app.quit();
   });
 });
 app.on("child-process-gone", (_event, details) => log("error", "electron.child_process_gone", details));
 
-process.on("uncaughtException", (error) => { exitingAfterCrash = true; log("error", "process.uncaught_exception", { message: error.message, stack: error.stack }); setImmediate(() => app.exit(1)); });
+process.on("uncaughtException", (error) => {
+  exitingAfterCrash = true;
+  log("error", "process.uncaught_exception", { message: error.message, stack: error.stack });
+  void releaseReporter?.submit(releaseReport("crash", { reason: "main:uncaught-exception" }, { appVersion: app.getVersion() })).finally(() => setImmediate(() => app.exit(1)));
+});
 process.on("unhandledRejection", (reason) => log("error", "process.unhandled_rejection", { message: reason instanceof Error ? reason.message : String(reason), stack: reason instanceof Error ? reason.stack : null }));

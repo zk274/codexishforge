@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -56,12 +57,40 @@ const schemaFiles = {
   serverRequests: "ServerRequest.json",
 };
 
+export const PROTOCOL_COMPATIBILITY_MATRIX = Object.freeze([
+  { id: "core-v1", label: "Core threads", features: [] },
+  { id: "desktop-v1", label: "Desktop workflow", features: ["authentication", "terminal", "changeStreaming", "interactiveApprovals"] },
+  { id: "extensions-v1", label: "Extension management", features: ["skillInventory", "skillManagement", "pluginInventory", "mcpInventory", "mcpManagement", "configInventory", "configManagement"] },
+  { id: "creation-v2", label: "Richer creation", features: ["threadSearch", "realtimeVoice"] },
+]);
+
+function schemaFingerprint(methods) {
+  const lines = Object.entries(methods)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .flatMap(([channel, values]) => [...(values || [])].sort().map((method) => `${channel}:${method}`));
+  return createHash("sha256").update(lines.join("\n")).digest("hex").slice(0, 24);
+}
+
+function protocolProfile(features) {
+  let profile = PROTOCOL_COMPATIBILITY_MATRIX[0];
+  const cumulativeFeatures = [];
+  for (const candidate of PROTOCOL_COMPATIBILITY_MATRIX.slice(1)) {
+    cumulativeFeatures.push(...candidate.features);
+    if (cumulativeFeatures.every((name) => features[name]?.available)) profile = candidate;
+    else break;
+  }
+  return { id: profile.id, label: profile.label };
+}
+
 export function unknownProtocolCompatibility(message = "Protocol compatibility has not been checked.") {
   return {
+    revision: 2,
     status: "unknown",
     source: null,
     experimentalSchema: null,
     checkedAt: null,
+    schemaFingerprint: null,
+    profile: null,
     missingMethod: null,
     missingMethods: [],
     unavailableFeatures: [],
@@ -112,15 +141,36 @@ export function evaluateProtocolCompatibility(methods, { experimentalSchema = tr
     message = `Core app-server support is available, but ${unavailableFeatures.join(", ")} ${unavailableFeatures.length === 1 ? "is" : "are"} unavailable.`;
   }
   return {
+    revision: 2,
     status,
     source: "generated-schema",
     experimentalSchema,
     checkedAt,
+    schemaFingerprint: schemaFingerprint(methods),
+    profile: protocolProfile(features),
     missingMethod: missingMethods[0] || null,
     missingMethods,
     unavailableFeatures,
     features: { core: { available: missingCore.length === 0, missingMethods: missingCore }, ...features },
     message,
+  };
+}
+
+export function compareProtocolCompatibility(previous, current) {
+  const oldFingerprint = typeof previous?.schemaFingerprint === "string" ? previous.schemaFingerprint : null;
+  const newFingerprint = typeof current?.schemaFingerprint === "string" ? current.schemaFingerprint : null;
+  const changed = Boolean(oldFingerprint && newFingerprint && oldFingerprint !== newFingerprint);
+  const newlyUnavailable = Object.entries(current?.features || {})
+    .filter(([name, value]) => name !== "core" && value?.available === false && previous?.features?.[name]?.available === true)
+    .map(([name]) => name);
+  return {
+    changed,
+    previousFingerprint: oldFingerprint,
+    currentFingerprint: newFingerprint,
+    previousProfile: previous?.profile?.id || null,
+    currentProfile: current?.profile?.id || null,
+    newlyUnavailable,
+    requiresAttention: current?.status === "incompatible" || newlyUnavailable.length > 0,
   };
 }
 

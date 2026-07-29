@@ -12,6 +12,7 @@ test("primary navigation and changing status have accessible semantics", () => {
   assert.match(html, /id="conversation"[^>]*tabindex="-1"[^>]*aria-label=/);
   assert.match(html, /id="toast"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
   assert.match(html, /id="regionStatus" aria-live="polite"/);
+  assert.match(html, /id="assistiveAnnouncements"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
 });
 
 test("every modal dialog is named and modal focus is contained", () => {
@@ -89,4 +90,30 @@ test("visual accessibility modes include visible focus, reduced motion, and forc
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(css, /html\.high-contrast/);
   assert.match(css, /@media \(forced-colors: active\)/);
+});
+
+test("screen reader mode announces decisions and completion without streaming-token chatter", () => {
+  assert.match(html, /id="screenReaderModeInput" type="checkbox"/);
+  assert.match(html, /Announce completed turns and decisions without reading every streaming token/);
+  assert.match(app, /function announce\(message\)/);
+  assert.match(app, /announce\("Codex finished the current turn\."\)/);
+  assert.match(app, /announce\("Codex needs your decision\."\)/);
+  assert.match(app, /else if \(method === "item\/agentMessage\/delta"\) appendItemDelta\([^;\n]+;\n/);
+});
+
+test("release reporting requires explicit consent and describes its fixed privacy boundary", () => {
+  assert.match(html, /id="reportingEnabledInput" type="checkbox"/);
+  assert.match(html, /never prompts, responses, paths, logs, or credentials/);
+  assert.match(html, /id="copyCompatibilityReportButton"/);
+  assert.match(main, /handleIpc\("stability:setReporting"/);
+  assert.match(main, /handleIpc\("stability:copyCompatibilityReport"/);
+});
+
+test("all IPC handlers and renderer navigation pass through trusted main-process guards", () => {
+  assert.match(main, /function assertTrustedIpcEvent/);
+  assert.match(main, /function handleIpc/);
+  assert.equal((main.match(/ipcMain\.handle\(/g) || []).length, 1);
+  assert.match(main, /function secureWebContents/);
+  assert.match(main, /webContents\.on\("will-navigate"/);
+  assert.match(main, /webContents\.setWindowOpenHandler/);
 });

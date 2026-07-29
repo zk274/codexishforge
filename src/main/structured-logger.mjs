@@ -1,13 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const sensitiveKey = /authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|password|secret/i;
+const sensitiveKey = /authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|password|secret|cookie|session[-_]?token|private[-_]?key|client[-_]?secret/i;
 
 export function redact(value, key = "") {
   if (sensitiveKey.test(key)) return "[REDACTED]";
   if (typeof value === "string") return value
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
     .replace(/\b(sk-[A-Za-z0-9_-]{12,})\b/g, "[REDACTED_API_KEY]")
+    .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g, "[REDACTED_GITHUB_TOKEN]")
+    .replace(/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/g, "[REDACTED_PRIVATE_KEY]")
     .replace(/([?&](?:access_token|refresh_token|api_key|code)=)[^&\s]+/gi, "$1[REDACTED]");
   if (Array.isArray(value)) return value.map((entry) => redact(entry));
   if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [childKey, redact(childValue, childKey)]));

@@ -12,6 +12,17 @@ test("redacts secrets recursively and inside authorization strings", () => {
   assert.equal(value.message, "token Bearer [REDACTED] https://example.test/callback?code=[REDACTED]&state=ok");
 });
 
+test("redacts GitHub credentials, cookies, and private-key blocks", () => {
+  const output = redact({
+    cookie: "session=private",
+    message: "token ghp_abcdefghijklmnopqrstuvwxyz123456 and -----BEGIN PRIVATE KEY-----\nprivate\n-----END PRIVATE KEY-----",
+  });
+  assert.equal(output.cookie, "[REDACTED]");
+  assert.doesNotMatch(output.message, /ghp_|private\n/);
+  assert.match(output.message, /REDACTED_GITHUB_TOKEN/);
+  assert.match(output.message, /REDACTED_PRIVATE_KEY/);
+});
+
 test("writes JSONL, keeps a bounded tail, and rotates", (context) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "codex-log-"));
   context.after(() => fs.rmSync(directory, { recursive: true, force: true }));

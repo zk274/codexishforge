@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { loadVersionedState, saveVersionedState } from "./state-storage.mjs";
 
 const MAX_ARTIFACTS = 200;
 const MAX_TEMPLATES = 100;
@@ -8,6 +9,11 @@ const MAX_ARTIFACT_BODY = 500_000;
 const MAX_SEARCH_RESULTS = 80;
 const MAX_SEARCH_FILES = 2_000;
 const MAX_SEARCH_BYTES = 12 * 1024 * 1024;
+const CREATION_STATE_VERSION = 2;
+const CREATION_MIGRATIONS = {
+  0: (value) => ({ version: 1, templates: value.templates || [], artifacts: value.artifacts || [] }),
+  1: (value) => ({ ...value, version: 2 }),
+};
 const SKIPPED_DIRECTORIES = new Set([".git", "node_modules", "dist", "build", "coverage", ".next", ".cache", "vendor"]);
 const SKIPPED_FILES = /(^|\/)(\.env(?:\.|$)|credentials?|secrets?|.*\.(?:pem|key|p12|pfx))$/i;
 const SEARCHABLE_EXTENSIONS = new Set([
@@ -96,13 +102,6 @@ function normalizeArtifact(candidate, now = Date.now()) {
   };
 }
 
-function atomicWrite(filePath, payload) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const temporary = `${filePath}.tmp`;
-  fs.writeFileSync(temporary, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(temporary, filePath);
-}
-
 export class CreationStore {
   constructor(filePath, { now = () => Date.now(), idFactory = randomUUID, onChange = null } = {}) {
     if (typeof filePath !== "string" || !path.isAbsolute(filePath)) throw new TypeError("Creation storage path must be absolute");
@@ -112,22 +111,27 @@ export class CreationStore {
     this.onChange = onChange;
     this.templates = [];
     this.artifacts = [];
+    this.storage = null;
     this.load();
   }
 
   load() {
-    try {
-      const parsed = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
-      this.templates = (parsed.templates || []).map((entry) => normalizeTemplate(entry, { now: this.now() })).filter(Boolean).slice(-MAX_TEMPLATES);
-      this.artifacts = (parsed.artifacts || []).map((entry) => normalizeArtifact(entry, this.now())).filter(Boolean).slice(-MAX_ARTIFACTS);
-    } catch {
-      this.templates = [];
-      this.artifacts = [];
-    }
+    const loaded = loadVersionedState(this.filePath, {
+      currentVersion: CREATION_STATE_VERSION,
+      migrations: CREATION_MIGRATIONS,
+      defaults: { templates: [], artifacts: [] },
+    });
+    this.storage = loaded.meta;
+    this.templates = (loaded.value.templates || []).map((entry) => normalizeTemplate(entry, { now: this.now() })).filter(Boolean).slice(-MAX_TEMPLATES);
+    this.artifacts = (loaded.value.artifacts || []).map((entry) => normalizeArtifact(entry, this.now())).filter(Boolean).slice(-MAX_ARTIFACTS);
   }
 
   save() {
-    atomicWrite(this.filePath, { version: 1, templates: this.templates, artifacts: this.artifacts });
+    saveVersionedState(this.filePath, { templates: this.templates, artifacts: this.artifacts }, {
+      currentVersion: CREATION_STATE_VERSION,
+      writable: this.storage?.writable !== false,
+    });
+    this.storage = { status: "current", source: "primary", fromVersion: CREATION_STATE_VERSION, version: CREATION_STATE_VERSION, writable: true, error: null };
     this.onChange?.(this.snapshot());
   }
 
@@ -138,6 +142,7 @@ export class CreationStore {
         ...[...this.templates].sort((left, right) => right.updatedAt - left.updatedAt),
       ],
       artifacts: [...this.artifacts].sort((left, right) => right.updatedAt - left.updatedAt),
+      storage: { ...this.storage },
     });
   }
 

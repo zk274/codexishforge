@@ -15,7 +15,7 @@ import { selectionFromPoints, selectionToImage } from "../shared/capture-region.
 
 const api = window.codexDesktop;
 const $ = (selector) => document.querySelector(selector);
-const state = { connected: false, connectionError: null, account: null, cli: null, compatibility: null, desktop: null, updates: null, extensions: null, tasks: { tasks: [], inbox: [], limits: { maxConcurrent: 2, active: 0, queued: 0 }, counts: {}, unread: 0 }, creation: { templates: [], artifacts: [] }, studioTab: "canvas", selectedArtifactId: null, selectedTemplateId: null, searchResults: [], voiceCapability: null, review: null, reviewTab: "changes", loginPending: false, restorationAttempted: false, threads: [], models: [], activeThread: null, turns: [], activeTurnId: null, diff: "", diffView: "working", git: null, gitDiffs: { working: "", staged: "" }, gitSelection: null, gitFileDiff: "", attachments: [], terminals: createTerminalCollection(), requestQueue: [], currentRequest: null, pendingDeepLinks: [], flushingDeepLinks: false };
+const state = { connected: false, connectionError: null, account: null, cli: null, compatibility: null, desktop: null, updates: null, stability: null, reporting: null, extensions: null, tasks: { tasks: [], inbox: [], limits: { maxConcurrent: 2, active: 0, queued: 0 }, counts: {}, unread: 0 }, creation: { templates: [], artifacts: [] }, studioTab: "canvas", selectedArtifactId: null, selectedTemplateId: null, searchResults: [], voiceCapability: null, review: null, reviewTab: "changes", loginPending: false, restorationAttempted: false, threads: [], models: [], activeThread: null, turns: [], activeTurnId: null, diff: "", diffView: "working", git: null, gitDiffs: { working: "", staged: "" }, gitSelection: null, gitFileDiff: "", attachments: [], terminals: createTerminalCollection(), requestQueue: [], currentRequest: null, pendingDeepLinks: [], flushingDeepLinks: false };
 const regionCapture = { source: null, start: null, selection: null, dragging: false };
 const cameraCapture = { stream: null, requestId: 0, devices: [] };
 const voiceCapture = { stream: null, context: null, source: null, processor: null, mode: null, transcript: "", chunkQueue: Promise.resolve(), playbackAt: 0 };
@@ -38,10 +38,11 @@ const els = {
   retryConnection: $("#retryConnectionButton"), chooseCli: $("#chooseCliButton"), signIn: $("#signInButton"), logout: $("#logoutButton"), authDocs: $("#authDocsButton"),
   shortcutSelect: $("#shortcutSelect"), shortcutPreferenceStatus: $("#shortcutPreferenceStatus"), trayEnabled: $("#trayEnabledInput"), closeToTray: $("#closeToTrayInput"), trayPreferenceStatus: $("#trayPreferenceStatus"),
   launchAtLogin: $("#launchAtLoginInput"), autostartPreferenceStatus: $("#autostartPreferenceStatus"),
-  textScale: $("#textScaleSelect"), reduceMotion: $("#reduceMotionInput"), highContrast: $("#highContrastInput"), accessibilityPreferenceStatus: $("#accessibilityPreferenceStatus"),
+  textScale: $("#textScaleSelect"), reduceMotion: $("#reduceMotionInput"), highContrast: $("#highContrastInput"), screenReaderMode: $("#screenReaderModeInput"), accessibilityPreferenceStatus: $("#accessibilityPreferenceStatus"), assistiveAnnouncements: $("#assistiveAnnouncements"),
   notifyTurnComplete: $("#notifyTurnCompleteInput"), notifyApproval: $("#notifyApprovalInput"), notifyTerminal: $("#notifyTerminalInput"), notificationPreferenceStatus: $("#notificationPreferenceStatus"),
   updateChannel: $("#updateChannelSelect"), autoCheckUpdates: $("#autoCheckUpdatesInput"), updatePreferenceStatus: $("#updatePreferenceStatus"),
   checkUpdates: $("#checkUpdatesButton"), downloadUpdate: $("#downloadUpdateButton"), installUpdate: $("#installUpdateButton"), viewReleases: $("#viewReleasesButton"),
+  reportingEnabled: $("#reportingEnabledInput"), reportingPreferenceStatus: $("#reportingPreferenceStatus"), copyCompatibilityReport: $("#copyCompatibilityReportButton"),
   extensionsOverlay: $("#extensionsOverlay"), closeExtensions: $("#closeExtensionsButton"), refreshExtensions: $("#refreshExtensionsButton"),
   extensionsSummary: $("#extensionsSummary"), extensionIssues: $("#extensionIssues"),
   skillsList: $("#skillsList"), skillsCount: $("#skillsCount"), pluginsList: $("#pluginsList"), pluginsCount: $("#pluginsCount"),
@@ -184,6 +185,7 @@ function applyAccessibilityPreferences(preferences) {
   const highContrast = preferences.highContrast || highContrastQuery.matches;
   document.documentElement.classList.toggle("reduce-motion", reduceMotion);
   document.documentElement.classList.toggle("high-contrast", highContrast);
+  document.documentElement.classList.toggle("screen-reader-mode", preferences.screenReaderMode === true);
   try { api.setTextScale(preferences.textScale); }
   catch (error) { console.warn("Unable to apply text scale", error); }
 }
@@ -202,6 +204,14 @@ function toast(message) {
   toast.timer = setTimeout(() => { els.toast.hidden = true; }, 3200);
 }
 function showError(error) { console.error(error); toast(error?.message || String(error)); }
+function announce(message) {
+  if (!state.desktop?.preferences?.screenReaderMode || !message) return;
+  els.assistiveAnnouncements.textContent = "";
+  requestAnimationFrame(() => { els.assistiveAnnouncements.textContent = message; });
+}
+function reportRenderMetric(name, startedAt) {
+  api.reportPerformance({ name, durationMs: performance.now() - startedAt }).catch(() => {});
+}
 function protocolFeatureAvailable(name) { return state.compatibility?.features?.[name]?.available !== false; }
 function setConnection(connected, error) {
   state.connected = connected; state.connectionError = error || null; els.connectionDot.classList.toggle("connected", connected);
@@ -278,6 +288,7 @@ function renderDesktopPreferences() {
   els.textScale.value = String(preferences.textScale);
   els.reduceMotion.checked = preferences.reduceMotion;
   els.highContrast.checked = preferences.highContrast;
+  els.screenReaderMode.checked = preferences.screenReaderMode;
   applyAccessibilityPreferences(preferences);
   for (const input of [els.notifyTurnComplete, els.notifyApproval, els.notifyTerminal]) input.disabled = !desktop.notifications?.supported;
   els.shortcutPreferenceStatus.className = "setting-status";
@@ -333,6 +344,21 @@ function renderDesktopPreferences() {
   } else {
     els.notificationPreferenceStatus.classList.add("warn");
     els.notificationPreferenceStatus.textContent = desktop.notifications?.error || "This desktop session does not provide system notifications.";
+  }
+}
+
+function renderReportingState() {
+  const reporting = state.reporting || state.stability?.reporting;
+  if (!reporting) return;
+  els.reportingEnabled.checked = reporting.preferences?.enabled === true;
+  els.reportingPreferenceStatus.className = "setting-status";
+  if (!els.reportingEnabled.checked) els.reportingPreferenceStatus.textContent = "Disabled. No crash or compatibility report is sent.";
+  else if (reporting.endpointConfigured) {
+    els.reportingPreferenceStatus.classList.add("good");
+    els.reportingPreferenceStatus.textContent = "Enabled for bounded crash and compatibility reports only.";
+  } else {
+    els.reportingPreferenceStatus.classList.add("warn");
+    els.reportingPreferenceStatus.textContent = "Consent is saved, but this community build has no reporting endpoint configured.";
   }
 }
 
@@ -404,8 +430,10 @@ async function openAuth() {
   try { state.cli = await api.cliStatus(); } catch (error) { state.connectionError = error.message; }
   try { state.desktop = await api.desktopPreferences(); } catch (error) { console.warn("Unable to read desktop preferences", error); }
   try { state.updates = await api.updateState(); } catch (error) { console.warn("Unable to read update state", error); }
+  try { state.stability = await api.stabilityState(); state.reporting = state.stability.reporting; } catch (error) { console.warn("Unable to read stability state", error); }
   renderAuth();
   renderUpdateState();
+  renderReportingState();
 }
 
 function extensionMeta(...values) {
@@ -1546,10 +1574,11 @@ function renderModels() {
   renderTaskModels();
 }
 function renderThreads() {
+  const renderStartedAt = performance.now();
   const query = els.threadSearch.value.trim().toLowerCase();
   const threads = state.threads.filter((thread) => `${thread.name || ""} ${thread.preview || ""} ${thread.cwd || ""}`.toLowerCase().includes(query));
   els.threadList.replaceChildren();
-  if (!threads.length) { const empty = document.createElement("p"); empty.className = "empty-list"; empty.textContent = query ? "No matching threads" : "No Codex threads yet"; els.threadList.append(empty); return; }
+  if (!threads.length) { const empty = document.createElement("p"); empty.className = "empty-list"; empty.textContent = query ? "No matching threads" : "No Codex threads yet"; els.threadList.append(empty); reportRenderMetric("threadRender", renderStartedAt); return; }
   for (const thread of threads) {
     const button = document.createElement("button"); button.className = `thread-item${thread.id === state.activeThread?.id ? " active" : ""}`;
     const title = document.createElement("strong"); title.textContent = thread.name || thread.preview || "Untitled thread";
@@ -1559,6 +1588,7 @@ function renderThreads() {
     if (thread.id === state.activeThread?.id) button.setAttribute("aria-current", "page");
     button.append(title, time, project); button.addEventListener("click", () => resumeThread(thread.id)); els.threadList.append(button);
   }
+  reportRenderMetric("threadRender", renderStartedAt);
 }
 function setActiveThread(thread, turns = []) {
   state.activeThread = thread; state.turns = turns; state.activeTurnId = turns.findLast?.((turn) => turn.status === "inProgress")?.id || null; state.diff = ""; state.gitSelection = null; state.gitFileDiff = "";
@@ -1618,6 +1648,7 @@ function itemNode(item) {
   return toolNode(item.type, JSON.stringify(item, null, 2), item.status || "completed");
 }
 function renderMessages() {
+  const renderStartedAt = performance.now();
   els.messages.replaceChildren();
   for (const turn of state.turns) {
     const turnNode = document.createElement("section"); turnNode.className = "turn"; turnNode.dataset.turnId = turn.id;
@@ -1627,6 +1658,7 @@ function renderMessages() {
     els.messages.append(turnNode);
   }
   requestAnimationFrame(() => { els.conversation.scrollTop = els.conversation.scrollHeight; });
+  reportRenderMetric("messageRender", renderStartedAt);
 }
 function ensureTurn(turnId) { let turn = state.turns.find((entry) => entry.id === turnId); if (!turn) { turn = { id: turnId, items: [], status: "inProgress", error: null }; state.turns.push(turn); } return turn; }
 function upsertItem(turnId, item) { const turn = ensureTurn(turnId), index = turn.items.findIndex((entry) => entry.id === item.id); if (index === -1) turn.items.push(item); else turn.items[index] = item; }
@@ -1645,6 +1677,7 @@ function gitCode(entry) {
   return state.diffView === "staged" ? `${entry.index} ` : ` ${entry.worktree}`;
 }
 function renderDiff() {
+  const renderStartedAt = performance.now();
   const files = gitFilesForView();
   if (state.gitSelection && !files.some((entry) => entry.path === state.gitSelection)) { state.gitSelection = null; state.gitFileDiff = ""; }
   const current = state.gitSelection ? state.gitFileDiff : (diffForView() || "");
@@ -1677,6 +1710,7 @@ function renderDiff() {
   else if (state.diffView === "staged") els.gitPrimary.textContent = "Unstage file";
   const stagedCount = (state.git?.entries || []).filter((entry) => entry.staged).length;
   els.gitCommitButton.disabled = !stagedCount || !els.gitCommitMessage.value.trim();
+  reportRenderMetric("diffParse", renderStartedAt);
 }
 async function selectGitFile(file) {
   state.gitSelection = file; state.gitFileDiff = "Loading diff…"; renderDiff();
@@ -1999,6 +2033,7 @@ function closeDiffPanel({ restoreFocus = true } = {}) {
   if (restoreFocus) els.diffButton.focus();
 }
 function renderTerminal() {
+  const renderStartedAt = performance.now();
   const terminal = activeTerminal(state.terminals);
   els.terminalTabs.replaceChildren();
   for (const tab of state.terminals.tabs) {
@@ -2029,6 +2064,7 @@ function renderTerminal() {
   els.restartTerminal.disabled = !terminal || terminal.status === "starting";
   els.newTerminal.disabled = !state.activeThread || !state.connected || !protocolFeatureAvailable("terminal");
   requestAnimationFrame(() => { els.terminalOutput.scrollTop = els.terminalOutput.scrollHeight; });
+  reportRenderMetric("terminalRender", renderStartedAt);
 }
 async function startTerminal(existing = null) {
   const cwd = existing?.cwd || state.activeThread?.cwd;
@@ -2096,7 +2132,7 @@ function handleNotification(method, params) {
   else if (method === "item/commandExecution/outputDelta" || method === "command/exec/outputDelta") appendItemDelta(params.turnId, params.itemId, "commandExecution", "aggregatedOutput", params.delta);
   else if (method === "item/fileChange/patchUpdated") { upsertItem(params.turnId, { type: "fileChange", id: params.itemId, changes: params.changes, status: "inProgress" }); refreshGit(); }
   else if (method === "turn/diff/updated") { state.diff = params.diff; renderDiff(); }
-  else if (method === "turn/completed") { const index = state.turns.findIndex((turn) => turn.id === params.turn.id); if (index === -1) state.turns.push(params.turn); else state.turns[index] = mergeTurnSnapshot(state.turns[index], params.turn); state.activeTurnId = null; refreshThreads(); refreshGit(); }
+  else if (method === "turn/completed") { const index = state.turns.findIndex((turn) => turn.id === params.turn.id); if (index === -1) state.turns.push(params.turn); else state.turns[index] = mergeTurnSnapshot(state.turns[index], params.turn); state.activeTurnId = null; announce("Codex finished the current turn."); refreshThreads(); refreshGit(); }
   else if (method === "process/outputDelta") {
     const terminal = terminalForHandle(state.terminals, params.processHandle);
     if (!terminal) return;
@@ -2119,7 +2155,7 @@ function handleNotification(method, params) {
   renderMessages(); updateComposer();
 }
 
-function queueRequest(request) { state.requestQueue.push(request); if (!state.currentRequest) showNextRequest(); }
+function queueRequest(request) { state.requestQueue.push(request); announce("Codex needs your decision."); if (!state.currentRequest) showNextRequest(); }
 
 async function activateNotificationTarget(target = {}) {
   if (target.kind === "thread") {
@@ -2267,7 +2303,7 @@ async function bootstrap() {
 }
 
 function applyBootstrap(result) {
-  state.threads = result.threads; state.models = result.models; state.cli = result.cli || state.cli; state.compatibility = result.compatibility || state.compatibility; state.desktop = result.desktop || state.desktop; state.updates = result.updates || state.updates; state.tasks = result.tasks || state.tasks; state.creation = result.creation || state.creation; setConnection(true); renderAccount(result.account); renderModels(); renderThreads(); renderDesktopPreferences(); renderUpdateState(); renderTasks(); renderCreation();
+  state.threads = result.threads; state.models = result.models; state.cli = result.cli || state.cli; state.compatibility = result.compatibility || state.compatibility; state.desktop = result.desktop || state.desktop; state.updates = result.updates || state.updates; state.reporting = result.reporting || state.reporting; state.tasks = result.tasks || state.tasks; state.creation = result.creation || state.creation; setConnection(true); renderAccount(result.account); renderModels(); renderThreads(); renderDesktopPreferences(); renderUpdateState(); renderReportingState(); renderTasks(); renderCreation();
   void loadVoiceCapability();
   void flushPendingDeepLinks();
 }
@@ -2297,6 +2333,7 @@ api.onEvent(async (event) => {
     else if (event.compatibility.status === "partial") toast(`Limited Codex protocol: ${event.compatibility.unavailableFeatures.join(", ")} unavailable`);
   }
   else if (event.kind === "desktopPreferences") { state.desktop = event.desktop; renderDesktopPreferences(); }
+  else if (event.kind === "reportingState") { state.reporting = event.reporting; renderReportingState(); }
   else if (event.kind === "updateState") { state.updates = event.updates; renderUpdateState(); }
   else if (event.kind === "tasksState") { state.tasks = event.tasks; renderTasks(); }
   else if (event.kind === "creationState") { state.creation = event.creation; renderCreation(); }
@@ -2724,6 +2761,7 @@ els.launchAtLogin.addEventListener("change", () => saveDesktopPreferences({ laun
 els.textScale.addEventListener("change", () => saveDesktopPreferences({ textScale: Number(els.textScale.value) }));
 els.reduceMotion.addEventListener("change", () => saveDesktopPreferences({ reduceMotion: els.reduceMotion.checked }));
 els.highContrast.addEventListener("change", () => saveDesktopPreferences({ highContrast: els.highContrast.checked }));
+els.screenReaderMode.addEventListener("change", () => saveDesktopPreferences({ screenReaderMode: els.screenReaderMode.checked }));
 els.notifyTurnComplete.addEventListener("change", () => saveDesktopPreferences({ notifyTurnComplete: els.notifyTurnComplete.checked }));
 els.notifyApproval.addEventListener("change", () => saveDesktopPreferences({ notifyApproval: els.notifyApproval.checked }));
 els.notifyTerminal.addEventListener("change", () => saveDesktopPreferences({ notifyTerminal: els.notifyTerminal.checked }));
@@ -2733,6 +2771,16 @@ els.checkUpdates.addEventListener("click", () => runUpdateAction("check"));
 els.downloadUpdate.addEventListener("click", () => runUpdateAction("download"));
 els.installUpdate.addEventListener("click", () => runUpdateAction("install"));
 els.viewReleases.addEventListener("click", () => api.openReleases().catch(showError));
+els.reportingEnabled.addEventListener("change", async () => {
+  try {
+    state.reporting = await api.setReportingPreferences({ enabled: els.reportingEnabled.checked });
+    renderReportingState();
+  } catch (error) { showError(error); renderReportingState(); }
+});
+els.copyCompatibilityReport.addEventListener("click", async () => {
+  try { await api.copyCompatibilityReport(); toast("Bounded compatibility report copied"); }
+  catch (error) { showError(error); }
+});
 els.authDocs.addEventListener("click", () => api.openExternal("https://developers.openai.com/codex/cli/"));
 els.retryConnection.addEventListener("click", async () => { try { applyBootstrap(await api.bootstrap()); toast("Codex connected"); } catch (error) { state.connectionError = error.message; showError(error); renderAuth(); } });
 els.chooseCli.addEventListener("click", async () => { try { const result = await api.chooseCodexCli(); if (result) { applyBootstrap(result); toast("Codex CLI connected"); } } catch (error) { state.connectionError = error.message; showError(error); renderAuth(); } });

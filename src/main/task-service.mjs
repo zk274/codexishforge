@@ -1,6 +1,6 @@
-import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { loadVersionedState, saveVersionedState } from "./state-storage.mjs";
 
 export const TASK_STATES = new Set(["queued", "preparing", "running", "waiting", "recovering", "completed", "failed", "cancelled"]);
 const ACTIVE_STATES = new Set(["preparing", "running", "waiting", "recovering"]);
@@ -8,6 +8,11 @@ const TERMINAL_STATES = new Set(["completed", "failed", "cancelled"]);
 const MAX_TASKS = 200;
 const MAX_INBOX = 500;
 const MAX_EVENTS = 120;
+const TASK_STATE_VERSION = 2;
+const TASK_MIGRATIONS = {
+  0: (value) => ({ version: 1, tasks: value.tasks || [], inbox: value.inbox || [] }),
+  1: (value) => ({ ...value, version: 2 }),
+};
 
 function bounded(value, limit, fallback = "") {
   return typeof value === "string" && value.trim() ? value.trim().slice(0, limit) : fallback;
@@ -113,25 +118,27 @@ export class TaskStore {
     this.onChange = onChange;
     this.tasks = [];
     this.inbox = [];
+    this.storage = null;
     this.load();
   }
 
   load() {
-    try {
-      const parsed = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
-      this.tasks = (parsed.tasks || []).map(loadTask).filter(Boolean).slice(-MAX_TASKS);
-      this.inbox = (parsed.inbox || []).map(loadInbox).filter(Boolean).slice(-MAX_INBOX);
-    } catch {
-      this.tasks = [];
-      this.inbox = [];
-    }
+    const loaded = loadVersionedState(this.filePath, {
+      currentVersion: TASK_STATE_VERSION,
+      migrations: TASK_MIGRATIONS,
+      defaults: { tasks: [], inbox: [] },
+    });
+    this.storage = loaded.meta;
+    this.tasks = (loaded.value.tasks || []).map(loadTask).filter(Boolean).slice(-MAX_TASKS);
+    this.inbox = (loaded.value.inbox || []).map(loadInbox).filter(Boolean).slice(-MAX_INBOX);
   }
 
   save() {
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    const temporary = `${this.filePath}.tmp`;
-    fs.writeFileSync(temporary, `${JSON.stringify({ version: 1, tasks: this.tasks, inbox: this.inbox }, null, 2)}\n`, { mode: 0o600 });
-    fs.renameSync(temporary, this.filePath);
+    saveVersionedState(this.filePath, { tasks: this.tasks, inbox: this.inbox }, {
+      currentVersion: TASK_STATE_VERSION,
+      writable: this.storage?.writable !== false,
+    });
+    this.storage = { status: "current", source: "primary", fromVersion: TASK_STATE_VERSION, version: TASK_STATE_VERSION, writable: true, error: null };
     this.onChange?.(this.snapshot());
   }
 
@@ -148,6 +155,7 @@ export class TaskStore {
       },
       counts: Object.fromEntries([...TASK_STATES].map((state) => [state, tasks.filter((task) => task.state === state).length])),
       unread: inbox.filter((item) => !item.resolved).length,
+      storage: { ...this.storage },
     });
   }
 

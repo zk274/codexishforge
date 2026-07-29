@@ -28,6 +28,7 @@ test("disabling the tray also disables close-to-tray", () => {
     textScale: 1,
     reduceMotion: false,
     highContrast: false,
+    screenReaderMode: false,
   });
   assert.equal(mergeDesktopPreferences({ trayEnabled: true, closeToTray: true }, { trayEnabled: false }).closeToTray, false);
 });
@@ -38,11 +39,13 @@ test("accessibility preferences validate text scale and independent visual modes
     textScale: 1.25,
     reduceMotion: true,
     highContrast: true,
+    screenReaderMode: true,
   }), {
     ...DEFAULT_DESKTOP_PREFERENCES,
     textScale: 1.25,
     reduceMotion: true,
     highContrast: true,
+    screenReaderMode: true,
   });
   assert.equal(normalizeDesktopPreferences({ textScale: 2 }).textScale, 1);
   assert.deepEqual(mergeDesktopPreferences(DEFAULT_DESKTOP_PREFERENCES, {

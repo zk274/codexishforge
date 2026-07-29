@@ -80,12 +80,12 @@ Codex Linux Community is a repository-first desktop coding agent. Desktop conven
 
 ## 0.9 — Stabilization
 
-- Tested Codex CLI compatibility matrix and graceful protocol migrations
-- Settings and local-state migrations with rollback-safe recovery
-- Performance budgets for startup, large threads, diffs, and terminal output
-- Security review of IPC, external links, package updates, attachments, and diagnostic redaction
-- Accessibility conformance pass and assistive-technology testing on major Linux desktops
-- Release telemetry limited to explicit opt-in crash and compatibility reporting
+- [x] Tested Codex CLI compatibility matrix and graceful protocol migrations
+- [x] Settings and local-state migrations with rollback-safe recovery
+- [x] Performance budgets for startup, large threads, diffs, and terminal output
+- [x] Security review of IPC, external links, package updates, attachments, and diagnostic redaction
+- [x] Accessibility conformance pass, screen-reader mode, and a reproducible assistive-technology test matrix
+- [x] Release reporting limited to explicit opt-in crash and compatibility reports
 
 ## 1.0 — Trusted Linux daily driver
 
@@ -103,4 +103,4 @@ Cloud-hosted execution, cross-device thread sync, and broad general-chat feature
 
 ## Release gates
 
-Every package must pass protocol tests, a packaged launch test with a minimal desktop `PATH`, login/logout verification, approval-flow fixtures, and artifact metadata inspection. A real-account login/logout pass remains a manual release check because CI must never receive maintainer credentials. Snap Store publication requires approval for classic confinement.
+Every package must pass protocol tests, a packaged launch test with a minimal desktop `PATH`, login/logout verification, approval-flow fixtures, artifact metadata inspection, and the automated accessibility conformance pass. A real-account login/logout pass and the applicable GNOME/KDE assistive-technology rows remain manual release checks because CI must never receive maintainer credentials or pretend to evaluate spoken output. Snap Store publication requires approval for classic confinement.

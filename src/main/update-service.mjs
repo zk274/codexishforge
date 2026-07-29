@@ -1,11 +1,57 @@
 import fs from "node:fs";
 import path from "node:path";
+import { validateExternalUrl } from "./security-policy.mjs";
 
 export const UPDATE_CHANNELS = Object.freeze(["stable", "beta"]);
 export const DEFAULT_UPDATE_PREFERENCES = Object.freeze({
   channel: "stable",
   autoCheck: true,
 });
+export const UPDATE_SECURITY_POLICY = Object.freeze({
+  autoDownload: false,
+  autoInstallOnAppQuit: false,
+  allowDowngrade: false,
+  metadataIntegrity: "sha512",
+});
+
+const UPDATE_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z](?:[0-9A-Za-z.-]{0,62}))?(?:\+[0-9A-Za-z.-]{1,64})?$/;
+const UPDATE_HASH_PATTERN = /^[A-Za-z0-9+/]{86}==$/;
+
+function validateUpdateFile(file) {
+  if (!file || typeof file !== "object") throw new TypeError("Update file metadata is invalid.");
+  const url = typeof file.url === "string" ? file.url.trim() : "";
+  if (!url || url.length > 500 || /[\u0000-\u001f\u007f]/.test(url)) {
+    throw new TypeError("Update file URL is invalid.");
+  }
+  if (/^https?:/i.test(url)) {
+    validateExternalUrl(url);
+  } else if (!/^[A-Za-z0-9][A-Za-z0-9._+() -]{0,299}$/.test(url) || path.posix.basename(url) !== url || url === "." || url === "..") {
+    throw new TypeError("Relative update file URLs must be plain filenames.");
+  }
+  if (!UPDATE_HASH_PATTERN.test(file.sha512)) {
+    throw new TypeError("Update file metadata has an invalid SHA-512 hash.");
+  }
+  if (!Number.isSafeInteger(file.size) || file.size <= 0 || file.size > 4 * 1024 ** 3) {
+    throw new TypeError("Update file metadata has an invalid size.");
+  }
+}
+
+export function validateUpdateMetadata(info, { channel = "stable" } = {}) {
+  if (!info || typeof info !== "object") throw new TypeError("Update metadata is invalid.");
+  const version = typeof info.version === "string" ? info.version.trim() : "";
+  if (!UPDATE_VERSION_PATTERN.test(version)) throw new TypeError("Update metadata has an invalid version.");
+  if (channel === "stable" && version.includes("-")) {
+    throw new TypeError("Prerelease updates are not accepted on the stable channel.");
+  }
+  if (!Array.isArray(info.files) || info.files.length === 0 || info.files.length > 16) {
+    throw new TypeError("Update file metadata is invalid.");
+  }
+  for (const file of info.files) validateUpdateFile(file);
+  return {
+    version,
+    files: info.files.length,
+  };
+}
 
 export function normalizeUpdatePreferences(value = {}) {
   const candidate = value && typeof value === "object" ? value : {};
@@ -78,6 +124,7 @@ export class UpdateService {
       total: null,
       error: null,
       reason: support.reason,
+      metadataValidated: false,
     };
     this.configureUpdater();
     this.bindEvents();
@@ -94,8 +141,21 @@ export class UpdateService {
   bindEvents() {
     this.updater.on("checking-for-update", () => this.setState({ phase: "checking", error: null, reason: null }));
     this.updater.on("update-available", (info = {}) => {
-      this.log("info", "updater.update_available", { version: info.version || null, channel: this.preferences.channel });
-      this.setState({ phase: "available", availableVersion: info.version || null, checkedAt: new Date().toISOString(), error: null });
+      try {
+        const metadata = validateUpdateMetadata(info, { channel: this.preferences.channel });
+        this.log("info", "updater.update_available", { version: metadata.version, channel: this.preferences.channel });
+        this.setState({
+          phase: "available",
+          availableVersion: metadata.version,
+          checkedAt: new Date().toISOString(),
+          error: null,
+          metadataValidated: true,
+        });
+      } catch (error) {
+        const message = cleanError(error);
+        this.log("warn", "updater.metadata_rejected", { message, channel: this.preferences.channel });
+        this.setState({ phase: "error", availableVersion: null, error: message, metadataValidated: false });
+      }
     });
     this.updater.on("update-not-available", (info = {}) => {
       this.log("info", "updater.update_not_available", { version: info.version || this.currentVersion, channel: this.preferences.channel });
@@ -132,8 +192,9 @@ export class UpdateService {
       supported,
       preferences: { ...this.preferences },
       ...this.state,
+      security: { ...UPDATE_SECURITY_POLICY },
       canCheck: supported && !["checking", "downloading", "downloaded"].includes(this.state.phase),
-      canDownload: supported && this.state.phase === "available",
+      canDownload: supported && this.state.phase === "available" && this.state.metadataValidated,
       canInstall: supported && this.state.phase === "downloaded",
     };
   }
@@ -151,6 +212,7 @@ export class UpdateService {
       total: null,
       error: null,
       reason: availability(this.packageType).reason,
+      metadataValidated: false,
     });
     return this.snapshot();
   }

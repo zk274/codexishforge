@@ -9,6 +9,7 @@
   </head>
   <body>
     <a class="skip-link" href="#conversation">Skip to conversation</a>
+    <div id="assistiveAnnouncements" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
     <div class="titlebar">
       <div class="brand-menu">
         <button id="brandMenuButton" class="brand-mark" type="button" title="Open application menu" aria-label="Open application menu" aria-haspopup="menu" aria-expanded="false" aria-controls="brandMenu">⌁</button>
@@ -206,7 +207,7 @@
       <section class="studio-dialog" role="dialog" aria-modal="true" aria-labelledby="studioTitle">
         <button id="closeStudioButton" class="dialog-close" title="Close" aria-label="Close Creation Studio">×</button>
         <header class="studio-header">
-          <div><p class="eyebrow">CODEX 0.8</p><h2 id="studioTitle">Creation Studio</h2><p>Shape long-form work, find local context, reuse repository workflows, and talk to Codex.</p></div>
+          <div><p class="eyebrow">CODEX 0.9</p><h2 id="studioTitle">Creation Studio</h2><p>Shape long-form work, find local context, reuse repository workflows, and talk to Codex.</p></div>
           <span id="studioStatus" class="studio-status" aria-live="polite">Local-first creation tools</span>
         </header>
         <nav id="studioTabs" class="studio-tabs" role="tablist" aria-label="Creation Studio views">
@@ -330,6 +331,7 @@
           </label>
           <label class="toggle-setting"><input id="reduceMotionInput" type="checkbox" /><span><strong>Reduce motion</strong><small>Remove nonessential animation and smooth transitions.</small></span></label>
           <label class="toggle-setting"><input id="highContrastInput" type="checkbox" /><span><strong>High contrast</strong><small>Increase text, border, control, and focus visibility.</small></span></label>
+          <label class="toggle-setting"><input id="screenReaderModeInput" type="checkbox" /><span><strong>Screen reader mode</strong><small>Announce completed turns and decisions without reading every streaming token.</small></span></label>
           <p id="accessibilityPreferenceStatus" class="setting-status">System contrast and reduced-motion preferences are also respected.</p>
           <p class="settings-subheading">NOTIFICATIONS</p>
           <label class="toggle-setting"><input id="notifyTurnCompleteInput" type="checkbox" /><span><strong>Completed turns</strong><small>Notify when Codex finishes while the app is unfocused.</small></span></label>
@@ -351,6 +353,12 @@
             <button id="checkUpdatesButton" class="secondary-button">Check now</button>
             <button id="downloadUpdateButton" class="secondary-button" hidden>Download update</button>
             <button id="installUpdateButton" class="primary-action" hidden>Restart and install</button>
+          </div>
+          <p class="settings-subheading">PRIVACY &amp; STABILITY</p>
+          <label class="toggle-setting"><input id="reportingEnabledInput" type="checkbox" /><span><strong>Crash and compatibility reports</strong><small>Opt in to bounded reports containing app, platform, crash reason, and protocol capability data—never prompts, responses, paths, logs, or credentials.</small></span></label>
+          <p id="reportingPreferenceStatus" class="setting-status">Reporting is disabled by default.</p>
+          <div class="update-actions">
+            <button id="copyCompatibilityReportButton" class="secondary-button">Copy report preview</button>
           </div>
         </section>
         <div class="auth-actions">

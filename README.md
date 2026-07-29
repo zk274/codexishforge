@@ -34,9 +34,9 @@ An unofficial Linux desktop client powered by the installed OpenAI Codex CLI. It
 - Open `codex-linux://` links in one running app instance to focus Codex, resume a thread, or confirm and open a local project
 - Check stable or beta release channels, explicitly download verified updates, and restart to install supported Linux packages
 - Receive configurable, privacy-safe notifications for completed turns, approval requests, questions, and background terminal exits
-- Use the complete interface by keyboard, with visible focus, contained dialog focus, reduced motion, text scaling, high contrast, and system accessibility preference support
+- Use the complete interface by keyboard, with visible focus, contained dialog focus, reduced motion, text scaling, high contrast, system accessibility preference support, and an optional screen-reader announcement mode
 - Restore the last active thread after restarting
-- Preflight the installed CLI's version-specific app-server schema, blocking incompatible builds and gating unavailable optional features
+- Preflight the installed CLI's version-specific app-server schema against a compatibility matrix, blocking incompatible builds and gracefully gating unavailable optional features
 - Inspect and manage installed skills, plugins, and MCP servers from a capability-gated Extension Center
 - Check extension health and open the user, project, system, or managed configuration layer that owns a setting
 - Queue durable background tasks with explicit queued, preparing, running, waiting, failed, stopped, and completed states
@@ -44,7 +44,7 @@ An unofficial Linux desktop client powered by the installed OpenAI Codex CLI. It
 - Inspect subagent ownership, handoffs, models, reasoning effort, status, and task resource usage
 - Recover active task threads after application or CLI restarts
 - Review approvals, questions, task results, failures, and background-terminal errors in one inbox
-- Collect rotating, credential-redacted diagnostics with copy/export controls
+- Collect rotating, credential-redacted diagnostics with state-recovery and performance health, plus optional crash and compatibility reporting that is off by default
 - Detect unclean shutdowns and offer renderer crash recovery
 - Choose an available model and reasoning effort
 - Stop an active turn
@@ -73,7 +73,7 @@ The development launcher removes `ELECTRON_RUN_AS_NODE` because Codex-hosted she
 
 ## Keyboard and accessibility
 
-Open account settings with **Ctrl+,** to choose 100–150% text size, reduced motion, or high contrast. Codex also follows the desktop's reduced-motion, increased-contrast, and forced-color preferences.
+Open account settings with **Ctrl+,** to choose 100–150% text size, reduced motion, high contrast, or screen-reader mode. Screen-reader mode announces completed turns and requests for decisions without reading every streamed token. Codex also follows the desktop's reduced-motion, increased-contrast, and forced-color preferences.
 
 Use **Ctrl+N** for a new thread, **Ctrl+K** or **/** to search threads, **Ctrl+J** for the terminal, **Ctrl+Shift+B** for background tasks, **Ctrl+Shift+R** for the Review Center, **Ctrl+Shift+F** for workspace search, **Alt+Left** to return home, and **F6** to cycle through the primary work areas. Arrow keys navigate thread lists and tabs. In region capture, arrow keys move the selection and **Shift+Arrow** resizes it. Dialogs contain keyboard focus and close with **Escape**.
 
@@ -84,6 +84,8 @@ Select **Tasks** in the title bar to queue work that can continue while you use 
 **Isolated worktree** is the default. The app creates a detached checkout beneath its private user-data directory from the selected Git revision, then starts a separate persisted Codex thread in that directory. The local checkout and its uncommitted changes are not copied or modified. Choose **Local checkout** only when intentional shared-file access is appropriate.
 
 Task metadata is written atomically to a mode-`0600` local JSON file. On restart, queued tasks return to the queue and active tasks resume their saved Codex threads. Managed worktrees are retained for inspection and reuse; the Task Center can open them directly.
+
+Settings, task state, and Creation Studio state use explicit schema versions. A valid prior file is retained as a private backup during migration. Corrupt primary data is recovered from that backup when possible; unknown future versions and failed migrations are opened read-only rather than overwritten.
 
 Subagent activity comes from Codex’s structured collaboration items. The interface shows ownership, status, handoffs, selected model and reasoning effort when available, while Codex remains responsible for spawning, steering, limits, and sandbox inheritance.
 
@@ -145,7 +147,7 @@ Packages are written to `dist/`. The build produces an AppImage, a `.deb` instal
 Classic confinement is intentional: Codex must open user-selected repositories and launch the host CLI. Install a local Snap build with:
 
 ```bash
-sudo snap install --classic --dangerous "dist/Codex Linux Community-0.8.0-amd64.snap"
+sudo snap install --classic --dangerous "dist/Codex Linux Community-0.9.0-amd64.snap"
 ```
 
 Publishing a classic snap in the Snap Store requires a confinement review.
@@ -154,23 +156,27 @@ Publishing a classic snap in the Snap Store requires a confinement review.
 
 Packaged AppImage and Debian builds can check GitHub Releases for updates. The stable channel reads `latest` metadata; the beta channel also accepts prerelease builds. Checks can run automatically, but downloads and installation always require explicit confirmation. Snap updates remain managed by the Snap Store.
 
-Release builds generate update metadata with SHA-512 artifact hashes. Stable versions use ordinary semantic versions such as `0.3.0`; beta versions use a suffix such as `0.4.0-beta.1` and must be published as GitHub prereleases. The build script configures both the metadata channel and release type, while publishing remains a separate, explicit action.
+Release builds generate update metadata with SHA-512 artifact hashes. Update versions, file names, URLs, sizes, and hashes are validated before download is enabled; downgrades, automatic downloads, and automatic installation on quit are disabled. Stable versions use ordinary semantic versions such as `0.9.0`; beta versions use a suffix such as `1.0.0-beta.1` and must be published as GitHub prereleases. The build script configures both the metadata channel and release type, while publishing remains a separate, explicit action.
 
 ## Architecture
 
 The renderer is a dependency-free HTML/CSS/JavaScript interface running with Electron context isolation, Node integration disabled, renderer sandboxing enabled, and a restrictive content security policy. A narrow preload bridge sends validated desktop actions to the main process.
 
-Before connecting, the main process asks the installed CLI to generate its version-specific app-server schema and checks the methods needed for core threads, authentication, approvals, change streaming, terminals, search, and realtime voice. Incompatible core protocols stop with upgrade guidance; partial protocols keep supported workflows available. It then starts `codex app-server --stdio`, performs the required `initialize`/`initialized` handshake, and communicates through the line-delimited JSON protocol. Background tasks and voice use structured protocol events. Creation artifacts and templates remain local; Review and Git operations are validated independently in the main process; optional GitHub context uses GitHub CLI authentication. Credentials remain owned by the Codex and GitHub CLIs; the desktop app does not collect or store them.
+Before connecting, the main process asks the installed CLI to generate its version-specific app-server schema and checks the methods needed for core threads, authentication, approvals, change streaming, terminals, extensions, search, and realtime voice. It records a schema fingerprint and the highest complete compatibility profile. Incompatible core protocols stop with upgrade guidance; partial protocols keep supported workflows available, and newly unavailable features are reported without guessing protocol behavior. It then starts `codex app-server --stdio`, performs the required `initialize`/`initialized` handshake, and communicates through the line-delimited JSON protocol. Background tasks and voice use structured protocol events. Creation artifacts and templates remain local; Review and Git operations are validated independently in the main process; optional GitHub context uses GitHub CLI authentication. Credentials remain owned by the Codex and GitHub CLIs; the desktop app does not collect or store them.
 
-Open the **•••** menu for diagnostics. Reports include runtime and compatibility state plus recent structured events. Authorization headers, API keys, tokens, passwords, secrets, and OAuth query values are redacted before logs are written. Logs rotate under the application's user-data directory.
+Open the **•••** menu for diagnostics. Reports include runtime, compatibility, migration, security, and performance-budget state plus recent structured events. Authorization headers, API keys, tokens, passwords, cookies, private keys, secrets, and OAuth query values are redacted before logs are written. Logs rotate under the application's user-data directory.
+
+Crash and compatibility reporting is disabled by default. Enabling it in Settings sends nothing unless the application has also been configured with a maintainer-controlled HTTPS endpoint. The fixed report schema can include the application, platform, crash reason, Codex version, protocol status/profile, and missing method names. It never includes prompts, responses, paths, logs, credentials, attachments, account data, or arbitrary renderer fields; **Copy report preview** shows the exact bounded shape locally.
 
 ## Current scope
 
-This is an early desktop client built on the CLI's experimental app-server protocol. Core local coding, Git review, optional GitHub collaboration, extension control, background tasks, worktrees, agent activity, local creation, search, templates, and capability-gated realtime voice are present. Cloud task management and public plugin browsing or installation are not yet exposed. Unknown server requests are rejected safely instead of being guessed. See [ROADMAP.md](ROADMAP.md) for the next desktop-focused milestones.
+Version 0.9 is the stabilization milestone built on the CLI's experimental app-server protocol. Core local coding, Git review, optional GitHub collaboration, extension control, background tasks, worktrees, agent activity, local creation, search, templates, and capability-gated realtime voice are present. Cloud task management and public plugin browsing or installation are not yet exposed. Unknown server requests are rejected safely instead of being guessed. See [ROADMAP.md](ROADMAP.md) for the remaining 1.0 trust and distribution gates.
 
 ## Safety and privacy
 
 New foreground and background threads default to `workspace-write` sandboxing and `on-request` approvals. Subagents inherit the parent task’s Codex permission boundary. External links are restricted to HTTPS. All model and tool activity follows the permissions, managed policy, hooks, and configuration enforced by your installed Codex CLI.
+
+Detailed 0.9 records: [compatibility and recovery](docs/COMPATIBILITY.md), [performance budgets](docs/PERFORMANCE.md), [security review](docs/SECURITY.md), and [accessibility test matrix](docs/ACCESSIBILITY.md).
 
 ## License
 
