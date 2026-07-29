@@ -56,6 +56,12 @@ On 2026-07-29, a maintainer completed the Debian install lifecycle for version 0
 
 This completes the installed Debian GNOME/Wayland check for version 0.9.0, including launcher, deep-link, removal, reinstall, tray, shortcut, attachment, portal, camera, completion and approval notifications, keyboard, focus, visual modes, and spoken Orca behavior. It does not replace any AppImage, Snap, GNOME/X11, or KDE check.
 
+### Installed classic Snap evidence
+
+On 2026-07-29, a maintainer installed the locally built version 0.9.0 (`amd64`) classic Snap on the same Ubuntu GNOME Wayland host. The installed package reported revision `x1` with classic confinement and opened normally through `snap run codex-linux-community`.
+
+This completes the classic Snap install-and-launch smoke check. The remaining launcher integration, state continuity, desktop features, notifications, accessibility, and removal checks remain part of the manual GNOME/Wayland release-candidate row below.
+
 ## Release-candidate desktop matrix
 
 | Desktop/session | AppImage | Debian | Classic Snap | Keyboard and screen reader | Status |
