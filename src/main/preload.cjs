@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   downloadUpdate: () => ipcRenderer.invoke("updates:download"),
   installUpdate: () => ipcRenderer.invoke("updates:install"),
   openReleases: () => ipcRenderer.invoke("updates:openReleases"),
+  openSponsor: () => ipcRenderer.invoke("project:openSponsor"),
   pathForFile: (file) => webUtils.getPathForFile(file),
   gitStatus: (cwd) => ipcRenderer.invoke("git:status", cwd),
   gitDiff: (params) => ipcRenderer.invoke("git:diff", params),

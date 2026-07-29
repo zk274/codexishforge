@@ -187,3 +187,7 @@ Detailed 0.9 records: [compatibility and recovery](docs/COMPATIBILITY.md), [Linu
 ## License
 
 MIT. “OpenAI” and “Codex” are trademarks of OpenAI; their use here identifies compatibility only.
+
+## Support
+
+Codex Linux Community remains free and open source. If the app is useful to you, optional maintenance sponsorship is available through [GitHub Sponsors](https://github.com/sponsors/zk274).

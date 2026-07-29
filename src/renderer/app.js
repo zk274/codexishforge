@@ -43,6 +43,7 @@ const els = {
   updateChannel: $("#updateChannelSelect"), autoCheckUpdates: $("#autoCheckUpdatesInput"), updatePreferenceStatus: $("#updatePreferenceStatus"),
   checkUpdates: $("#checkUpdatesButton"), downloadUpdate: $("#downloadUpdateButton"), installUpdate: $("#installUpdateButton"), viewReleases: $("#viewReleasesButton"),
   reportingEnabled: $("#reportingEnabledInput"), reportingPreferenceStatus: $("#reportingPreferenceStatus"), copyCompatibilityReport: $("#copyCompatibilityReportButton"),
+  sponsorProject: $("#sponsorProjectButton"),
   extensionsOverlay: $("#extensionsOverlay"), closeExtensions: $("#closeExtensionsButton"), refreshExtensions: $("#refreshExtensionsButton"),
   extensionsSummary: $("#extensionsSummary"), extensionIssues: $("#extensionIssues"),
   skillsList: $("#skillsList"), skillsCount: $("#skillsCount"), pluginsList: $("#pluginsList"), pluginsCount: $("#pluginsCount"),
@@ -2771,6 +2772,7 @@ els.checkUpdates.addEventListener("click", () => runUpdateAction("check"));
 els.downloadUpdate.addEventListener("click", () => runUpdateAction("download"));
 els.installUpdate.addEventListener("click", () => runUpdateAction("install"));
 els.viewReleases.addEventListener("click", () => api.openReleases().catch(showError));
+els.sponsorProject.addEventListener("click", () => api.openSponsor().catch(showError));
 els.reportingEnabled.addEventListener("change", async () => {
   try {
     state.reporting = await api.setReportingPreferences({ enabled: els.reportingEnabled.checked });

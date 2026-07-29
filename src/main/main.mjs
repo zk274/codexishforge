@@ -51,6 +51,7 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { autoUpdater } = electronUpdater;
+const PROJECT_SPONSOR_URL = "https://github.com/sponsors/zk274";
 const initialDeepLinkArgument = extractDeepLinkArgument(process.argv);
 const singleInstanceLockAcquired = app.requestSingleInstanceLock({ deepLink: initialDeepLinkArgument });
 if (!singleInstanceLockAcquired) app.quit();
@@ -1372,6 +1373,7 @@ function registerIpc() {
     return true;
   });
   handleIpc("updates:openReleases", () => shell.openExternal(validateExternalUrl("https://github.com/zk274/linuxcodexzk/releases").toString()));
+  handleIpc("project:openSponsor", () => shell.openExternal(validateExternalUrl(PROJECT_SPONSOR_URL).toString()));
 
   handleIpc("git:status", async (_event, cwd) => {
     return git.status(cwd);
