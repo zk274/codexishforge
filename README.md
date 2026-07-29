@@ -55,7 +55,7 @@ An unofficial Linux desktop client powered by the installed OpenAI Codex CLI. It
 ## Requirements
 
 - A modern x86_64 or arm64 Linux desktop
-- Node.js 22 or newer for development
+- Node.js 22.12 or newer for development
 - The current [OpenAI Codex CLI](https://developers.openai.com/codex/cli/) installed and available as `codex`
 - An authenticated CLI session (`codex login` or an API key supported by the CLI)
 - Optional: authenticated [GitHub CLI](https://cli.github.com/) for private issue, pull-request, review, Actions, policy, and draft-PR context; Git push uses the remote's configured credentials
