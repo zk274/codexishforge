@@ -70,8 +70,9 @@ On 2026-07-29, a maintainer installed the locally built version 0.9.0 (`amd64`) 
 - On 2026-08-05, a command attempting to write outside the active project paused for approval and displayed the fixed approval notification while the app was unfocused; denying it left the requested file uncreated.
 - On 2026-08-05, the rebuilt Snap kept Creation Studio's full Canvas boundary and primary action visible at 150% text. Packaged Wayland and X11 probes also confirmed that Canvas stayed inside the viewport and Templates scrolled to its Save action.
 - On 2026-08-05, keyboard-only navigation at 150% text preserved visible focus across Studio and the primary work areas, arrow-key tab selection worked, and Escape closed Studio and restored focus. With Orca and in-app screen-reader mode enabled, navigation and selected states had useful spoken names; a pending command approval and its denied completion were each announced once without streaming-token chatter.
+- Removing and reinstalling the locally built Snap completed successfully, and the previous threads, settings, and project state remained available afterward.
 
-This completes the classic Snap install, launch, state-continuity, application-menu, single-instance deep-link, tray, shortcut, attachment, portal, camera, completion-notification, approval-notification, keyboard, screen-reader, and high-zoom layout checks. The remaining removal and data-preservation check remains part of the manual GNOME/Wayland release-candidate row below.
+This completes the installed classic Snap GNOME/Wayland check for version 0.9.0, including install, launch, state continuity, application-menu activation, single-instance deep links, tray, shortcut, attachments, portals, camera, completion and approval notifications, keyboard, high-zoom layout, spoken Orca behavior, removal, and data preservation. It does not replace any AppImage, Debian, GNOME/X11, or KDE check.
 
 ## Release-candidate desktop matrix
 
