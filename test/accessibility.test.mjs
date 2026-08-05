@@ -6,6 +6,7 @@ const html = fs.readFileSync(new URL("../src/renderer/index.html", import.meta.u
 const css = fs.readFileSync(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
 const app = fs.readFileSync(new URL("../src/renderer/app.js", import.meta.url), "utf8");
 const main = fs.readFileSync(new URL("../src/main/main.mjs", import.meta.url), "utf8");
+const desktopCompatibility = fs.readFileSync(new URL("../scripts/verify-desktop-compatibility.mjs", import.meta.url), "utf8");
 
 test("primary navigation and changing status have accessible semantics", () => {
   assert.match(html, /class="skip-link" href="#conversation"/);
@@ -98,6 +99,14 @@ test("visual accessibility modes include visible focus, reduced motion, and forc
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(css, /html\.high-contrast/);
   assert.match(css, /@media \(forced-colors: active\)/);
+});
+
+test("Creation Studio stays reachable in a high-zoom viewport", () => {
+  assert.match(css, /\.studio-overlay\s*\{[^}]*overflow:auto/);
+  assert.match(css, /\.studio-dialog\s*\{[^}]*height:min\(920px,calc\(100dvh - 44px\)\)/);
+  assert.match(main, /studioHighZoom/);
+  assert.match(desktopCompatibility, /Studio Canvas action is clipped at high zoom/);
+  assert.match(desktopCompatibility, /Studio template action is unreachable at high zoom/);
 });
 
 test("screen reader mode announces decisions and completion without streaming-token chatter", () => {

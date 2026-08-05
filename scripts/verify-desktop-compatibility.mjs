@@ -165,6 +165,18 @@ function verify(report, packageTarget, backend) {
   assert.equal(report.renderer?.backgroundInert, report.renderer?.openDialogs > 0);
   assert.ok(report.renderer?.viewport?.width > 0);
   assert.ok(report.renderer?.viewport?.height > 0);
+  assert.equal(report.renderer?.studioHighZoom?.open, true);
+  const viewportHeight = report.renderer.viewport.height;
+  const studio = report.renderer.studioHighZoom;
+  assert.ok(studio.canvas.dialog.top >= -1, "Studio dialog extends above the high-zoom viewport");
+  assert.ok(studio.canvas.dialog.bottom <= viewportHeight + 1, "Studio dialog extends below the high-zoom viewport");
+  assert.ok(studio.canvas.action.top >= studio.canvas.view.top - 1, "Studio Canvas action extends above its view");
+  assert.ok(studio.canvas.action.bottom <= Math.min(studio.canvas.view.bottom, viewportHeight) + 1, "Studio Canvas action is clipped at high zoom");
+  assert.equal(studio.canvas.overlayOverflowY, "auto");
+  assert.ok(studio.templateEditor.scrollHeight > studio.templateEditor.clientHeight, "Studio template editor does not exercise overflow at high zoom");
+  assert.ok(studio.templateEditor.scrollTop > 0, "Studio template editor did not scroll at high zoom");
+  assert.ok(studio.templateEditor.action.top >= studio.templateEditor.bounds.top - 1, "Studio template action extends above its editor");
+  assert.ok(studio.templateEditor.action.bottom <= Math.min(studio.templateEditor.bounds.bottom, viewportHeight) + 1, "Studio template action is unreachable at high zoom");
   assert.equal(typeof report.desktop?.shortcut?.registered, "boolean");
   assert.ok(report.desktop.shortcut.registered || report.desktop.shortcut.error);
   assert.equal(report.desktop?.tray?.enabled, true);

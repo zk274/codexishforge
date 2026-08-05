@@ -68,8 +68,9 @@ On 2026-07-29, a maintainer installed the locally built version 0.9.0 (`amd64`) 
 - File attachment, full-screen capture, region capture, camera preview, and still-image attachment completed successfully.
 - After the classic-Snap launcher selected the host notification daemon, an unfocused completed turn displayed the fixed, privacy-safe completion notification.
 - On 2026-08-05, a command attempting to write outside the active project paused for approval and displayed the fixed approval notification while the app was unfocused; denying it left the requested file uncreated.
+- On 2026-08-05, the rebuilt Snap kept Creation Studio's full Canvas boundary and primary action visible at 150% text. Packaged Wayland and X11 probes also confirmed that Canvas stayed inside the viewport and Templates scrolled to its Save action.
 
-This completes the classic Snap install, launch, state-continuity, application-menu, single-instance deep-link, tray, shortcut, attachment, portal, camera, completion-notification, and approval-notification checks. The remaining accessibility and removal checks remain part of the manual GNOME/Wayland release-candidate row below.
+This completes the classic Snap install, launch, state-continuity, application-menu, single-instance deep-link, tray, shortcut, attachment, portal, camera, completion-notification, approval-notification, and high-zoom Studio layout checks. The remaining keyboard, screen-reader, and removal checks remain part of the manual GNOME/Wayland release-candidate row below.
 
 ## Release-candidate desktop matrix
 

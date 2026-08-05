@@ -1964,7 +1964,38 @@ function createWindow({ show = true } = {}) {
       return;
     }
     try {
-      const renderer = await mainWindow.webContents.executeJavaScript(`(() => {
+      const renderer = await mainWindow.webContents.executeJavaScript(`(async () => {
+        const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+        const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+        const bounds = (element) => {
+          const rectangle = element.getBoundingClientRect();
+          return { top: rectangle.top, right: rectangle.right, bottom: rectangle.bottom, left: rectangle.left, width: rectangle.width, height: rectangle.height };
+        };
+        for (let attempt = 0; attempt < 50 && document.querySelector("#accountName").textContent === "Connecting…"; attempt += 1) await delay(50);
+        window.codexDesktop.setTextScale(1.5);
+        await nextFrame();
+        await nextFrame();
+        document.querySelector("#studioButton").click();
+        await nextFrame();
+        await nextFrame();
+        const studioOverlay = document.querySelector("#studioOverlay");
+        const studioDialog = studioOverlay.querySelector(".studio-dialog");
+        const studioCanvas = document.querySelector("#studioCanvas");
+        const canvasAction = document.querySelector("#newArtifactEmptyButton");
+        const canvasState = {
+          dialog: bounds(studioDialog),
+          view: bounds(studioCanvas),
+          action: bounds(canvasAction),
+          overlayClientHeight: studioOverlay.clientHeight,
+          overlayScrollHeight: studioOverlay.scrollHeight,
+          overlayOverflowY: getComputedStyle(studioOverlay).overflowY,
+        };
+        document.querySelector('[data-studio-tab="templates"]').click();
+        await nextFrame();
+        const templateEditor = document.querySelector("#templateForm");
+        templateEditor.scrollTop = templateEditor.scrollHeight;
+        await nextFrame();
+        const templateAction = templateEditor.querySelector('button[type="submit"]');
         const dialogs = [...document.querySelectorAll('[role="dialog"]')];
         const openDialogs = dialogs.filter((dialog) => !dialog.closest("[hidden]"));
         return {
@@ -1977,6 +2008,17 @@ function createWindow({ show = true } = {}) {
           openDialogs: openDialogs.length,
           backgroundInert: document.querySelector(".app-shell").inert,
           viewport: { width: window.innerWidth, height: window.innerHeight, deviceScaleFactor: window.devicePixelRatio },
+          studioHighZoom: {
+            open: !studioOverlay.hidden,
+            canvas: canvasState,
+            templateEditor: {
+              bounds: bounds(templateEditor),
+              clientHeight: templateEditor.clientHeight,
+              scrollHeight: templateEditor.scrollHeight,
+              scrollTop: templateEditor.scrollTop,
+              action: bounds(templateAction),
+            },
+          },
         };
       })()`);
       const capture = await mainWindow.webContents.capturePage();
