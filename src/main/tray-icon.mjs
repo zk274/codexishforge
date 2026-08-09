@@ -59,3 +59,28 @@ export function createTrayIconPng(size = 20) {
     chunk("IEND"),
   ]);
 }
+
+export function withGnomeStatusNotifierPixmap(
+  createTray,
+  { platform = process.platform, env = process.env, isGnome = false } = {},
+) {
+  if (typeof createTray !== "function") throw new TypeError("Tray creation must be a function");
+  if (platform !== "linux" || !isGnome) return createTray();
+  if (!env || typeof env !== "object") throw new TypeError("Tray creation requires an environment object");
+
+  // Chromium publishes file-backed tray icons on GNOME, but Ubuntu's
+  // AppIndicators extension can remain on its loading fallback even when that
+  // file is valid. XFCE uses the same StatusNotifier protocol with IconPixmap,
+  // which avoids the extension's asynchronous file loader. Chromium captures
+  // this choice synchronously while constructing the tray, so restore the real
+  // desktop marker immediately afterward.
+  const hadDesktop = Object.hasOwn(env, "XDG_CURRENT_DESKTOP");
+  const desktop = env.XDG_CURRENT_DESKTOP;
+  env.XDG_CURRENT_DESKTOP = "XFCE";
+  try {
+    return createTray();
+  } finally {
+    if (hadDesktop && desktop !== undefined) env.XDG_CURRENT_DESKTOP = desktop;
+    else delete env.XDG_CURRENT_DESKTOP;
+  }
+}

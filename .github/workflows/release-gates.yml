@@ -33,7 +33,7 @@ jobs:
       - name: Install system test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes squashfs-tools xvfb
+          sudo apt-get install --yes squashfs-tools xdotool xvfb
 
       - name: Install dependencies
         run: npm ci

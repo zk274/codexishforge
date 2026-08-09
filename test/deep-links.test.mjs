@@ -16,6 +16,8 @@ test("extracts a bounded Codex Linux link from Electron arguments", () => {
 test("parses focus and thread links into minimal actions", () => {
   assert.deepEqual(parseDeepLink("codex-linux://open"), { kind: "open" });
   assert.deepEqual(parseDeepLink("CODEX-LINUX://OPEN/"), { kind: "open" });
+  assert.deepEqual(parseDeepLink("codex-linux://quick-prompt"), { kind: "quickPrompt" });
+  assert.deepEqual(parseDeepLink("CODEX-LINUX://QUICK-PROMPT/"), { kind: "quickPrompt" });
   assert.deepEqual(parseDeepLink("codex-linux://thread/0190d7a8_ab-CD"), {
     kind: "thread",
     threadId: "0190d7a8_ab-CD",
@@ -34,6 +36,7 @@ test("rejects credentials, fragments, duplicate or unexpected parameters", () =>
     "codex-linux://user:pass@open",
     "codex-linux://open#fragment",
     "codex-linux://open?prompt=run%20this",
+    "codex-linux://quick-prompt?text=run%20this",
     "codex-linux://project?path=%2Ftmp&path=%2Fhome",
     "codex-linux://project?path=%2Ftmp&prompt=hello",
   ]) assert.throws(() => parseDeepLink(value), { code: "INVALID_DEEP_LINK" });

@@ -4,7 +4,7 @@ Version 0.9 validates packaged Linux behavior at two different levels: automated
 
 ## Automated package and display-backend probe
 
-`npm run verify:desktop` launches both the AppImage and extracted Debian payload with clean home and configuration directories. It uses every display backend actually available to the test host:
+`npm run verify:desktop` extracts the AppImage and Debian packages, then launches both payloads with clean home and configuration directories. It uses every display backend actually available to the test host:
 
 - Native Wayland when `WAYLAND_DISPLAY` and its runtime directory are available.
 - Native X11 or XWayland when `DISPLAY` is available.
@@ -34,7 +34,14 @@ On 2026-07-29, version 0.9 passed four packaged cases on an Ubuntu GNOME Wayland
 | AppImage | X11 through XWayland | Pass |
 | Debian | X11 through XWayland | Pass |
 
-All four cases used Electron 43.2.0 and produced a loaded renderer, named modal state, non-empty pixel capture, available tray, supported notifications, and a registered global shortcut. This is development evidence for GNOME Wayland and both Electron display backends; it is not a human GNOME/X11, KDE, camera, portal, installed-package, or screen-reader pass.
+All four cases used Electron 43.2.0 and produced a loaded renderer, named modal state, non-empty pixel capture, available tray, and supported notifications. Shortcut registration was recorded by the application, while native accelerator delivery remained a manual check. This is development evidence for GNOME Wayland and both Electron display backends; it is not a human GNOME/X11, KDE, camera, portal, installed-package, or screen-reader pass.
+
+On 2026-08-09, a maintainer manually launched the rebuilt version 0.9.0 AppImage on Ubuntu 26.04 LTS with GNOME Shell 50.1 in a native Wayland session:
+
+- `Ctrl+Shift+Space` was installed as the app-owned GNOME custom binding (`<Primary><Shift>space`) and opened Quick Prompt in the existing application instance through `codex-linux://quick-prompt` while the application was retained in the tray.
+- Ubuntu AppIndicators rendered the generated StatusNotifier `IconPixmap` instead of the three-dot `image-loading-symbolic` fallback. Show Codex, Quick prompt, Quit, and close-to-tray behavior remained functional.
+
+This is narrow manual AppImage GNOME/Wayland evidence for shortcut delivery and visible tray rendering; it does not complete the remaining AppImage release-candidate checks or any GNOME/X11 or KDE row. The automated desktop probe now verifies visible Quick Prompt behavior with input focus in every case and a real X11 accelerator under Xvfb; native Wayland accelerator delivery remains manual.
 
 ### Installed Debian evidence
 

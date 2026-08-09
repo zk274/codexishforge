@@ -44,6 +44,11 @@ export function parseDeepLink(value) {
     return { kind: "open" };
   }
 
+  if (route === "quick-prompt") {
+    if (!["", "/"].includes(url.pathname) || url.search || !hasOnlySearchParams(url, [])) throw invalid();
+    return { kind: "quickPrompt" };
+  }
+
   if (route === "thread") {
     if (url.search || !hasOnlySearchParams(url, [])) throw invalid();
     let threadId;

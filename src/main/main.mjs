@@ -14,7 +14,15 @@ import { secureThreadExecutionParams, secureTurnExecutionParams } from "./codex-
 import { CreationStore, searchWorkspace, validateRealtimeAudioChunk } from "./creation-service.mjs";
 import { DEEP_LINK_SCHEME, extractDeepLinkArgument, parseDeepLink } from "./deep-links.mjs";
 import { resolveLinuxDesktopName } from "./desktop-identity.mjs";
-import { mergeDesktopPreferences, normalizeDesktopPreferences, shortcutCandidates, shouldHideOnClose } from "./desktop-preferences.mjs";
+import {
+  desktopPreferenceEffects,
+  GLOBAL_SHORTCUTS_PORTAL_FEATURE,
+  mergeChromiumFeatures,
+  mergeDesktopPreferences,
+  normalizeDesktopPreferences,
+  shortcutCandidates,
+  shouldHideOnClose,
+} from "./desktop-preferences.mjs";
 import {
   buildExtensionInventory,
   configFiles,
@@ -25,6 +33,7 @@ import {
 import { resolveCodexCommand, validateCodexCommand } from "./codex-locator.mjs";
 import { GitService } from "./git-service.mjs";
 import { GitHubService } from "./github-service.mjs";
+import { detectGnomeWaylandSession, GnomeShortcutController, quickPromptCommand } from "./gnome-shortcut.mjs";
 import { PerformanceLedger, validatePerformanceMetric } from "./performance-budgets.mjs";
 import { compareProtocolCompatibility, inspectCodexProtocol, unknownProtocolCompatibility } from "./protocol-compatibility.mjs";
 import { normalizeReportingPreferences, ReleaseReporter, releaseReport } from "./release-reporting.mjs";
@@ -35,7 +44,7 @@ import { loadSettingsState, saveSettingsState } from "./settings-state.mjs";
 import { redactedDiagnosticsMarkdown, redactedTaskMarkdown } from "./share-summary.mjs";
 import { StructuredLogger } from "./structured-logger.mjs";
 import { TaskStore } from "./task-service.mjs";
-import { createTrayIconPng } from "./tray-icon.mjs";
+import { createTrayIconPng, withGnomeStatusNotifierPixmap } from "./tray-icon.mjs";
 import { UpdateService, detectLinuxPackageType, normalizeUpdatePreferences } from "./update-service.mjs";
 import {
   NOTIFICATION_DEDUPE_WINDOW_MS,
@@ -54,6 +63,14 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { autoUpdater } = electronUpdater;
 const PROJECT_SPONSOR_URL = "https://github.com/sponsors/zk274";
+if (process.platform === "linux") {
+  app.commandLine.appendSwitch("enable-features", mergeChromiumFeatures(
+    app.commandLine.getSwitchValue("enable-features"),
+    [GLOBAL_SHORTCUTS_PORTAL_FEATURE],
+  ));
+}
+const desktopCompatibilityTestMode = process.argv.some((argument) => argument.startsWith("--test-desktop-compatibility="));
+const shortcutRegistrationDisabledForTest = desktopCompatibilityTestMode && process.argv.includes("--test-disable-global-shortcut");
 const linuxDesktopName = resolveLinuxDesktopName();
 if (linuxDesktopName) app.setDesktopName(linuxDesktopName);
 const initialDeepLinkArgument = extractDeepLinkArgument(process.argv);
@@ -70,8 +87,14 @@ let shortcutRegistered = false;
 let shortcutAccelerator = null;
 let shortcutRequested = null;
 let shortcutError = null;
+let shortcutMethod = null;
+let managedShortcutStatus = null;
+let shortcutRegistrationPromise = Promise.resolve(false);
+const quickPromptActivation = { count: 0, lastSource: null, lastAction: null, lastTriggeredAt: null };
+let preserveCompanionForCompatibilityProbe = false;
 let tray = null;
 let trayError = null;
+let trayIconRepublishTimer = null;
 let autostart = null;
 let updateService = null;
 let updateCheckTimer = null;
@@ -104,6 +127,12 @@ let previousUncleanShutdown = false;
 let exitingAfterCrash = false;
 const startedAt = Date.now();
 const execFileAsync = promisify(execFile);
+const shortcutExecutable = resolveAutostartExecutable({ execPath: process.execPath, env: process.env });
+const gnomeShortcut = new GnomeShortcutController({
+  execFile,
+  env: process.env,
+  command: quickPromptCommand(shortcutExecutable),
+});
 const imageExtensions = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"]);
 const git = new GitService();
 const github = new GitHubService();
@@ -226,11 +255,23 @@ function reportingSnapshot() {
 }
 
 function shortcutSnapshot() {
+  let confirmed = false;
+  if (shortcutMethod === "gnome-custom") confirmed = managedShortcutStatus?.installed === true;
+  else {
+    try { confirmed = Boolean(shortcutAccelerator && globalShortcut.isRegistered(shortcutAccelerator)); }
+    catch {}
+  }
   return {
     requested: shortcutRequested,
     accelerator: shortcutAccelerator,
     registered: shortcutRegistered,
+    confirmed,
     error: shortcutError,
+    method: shortcutMethod,
+    managed: managedShortcutStatus,
+    portalFeatureEnabled: app.commandLine.getSwitchValue("enable-features").split(",").includes(GLOBAL_SHORTCUTS_PORTAL_FEATURE),
+    testDisabled: shortcutRegistrationDisabledForTest,
+    activation: { ...quickPromptActivation },
   };
 }
 
@@ -1304,17 +1345,19 @@ function registerIpc() {
     flushDeepLinkActions();
     return deepLinkSnapshot();
   });
-  handleIpc("desktop:updatePreferences", (_event, updates = {}) => {
+  handleIpc("desktop:updatePreferences", async (_event, updates = {}) => {
     if (!updates || typeof updates !== "object" || Array.isArray(updates)) throw new TypeError("Desktop preference updates must be an object");
     if (Object.hasOwn(updates, "launchAtLogin")) {
       if (typeof updates.launchAtLogin !== "boolean") throw new TypeError("Launch at login must be enabled or disabled");
       autostart.setEnabled(updates.launchAtLogin);
     }
     const settings = readSettings();
+    const previousPreferences = normalizeDesktopPreferences(settings.desktop);
     const preferences = mergeDesktopPreferences(settings.desktop, updates);
+    const effects = desktopPreferenceEffects(previousPreferences, preferences);
     writeSettings({ ...settings, desktop: preferences });
-    registerQuickPromptShortcut(preferences);
-    updateTray(preferences);
+    if (effects.reregisterShortcut) await registerQuickPromptShortcut(preferences);
+    if (effects.refreshTray) updateTray(preferences);
     const result = desktopState();
     log(result.shortcut.registered || !preferences.quickPromptShortcut ? "info" : "warn", "desktop.preferences_updated", result);
     sendEvent({ kind: "desktopPreferences", desktop: result });
@@ -1966,12 +2009,10 @@ function createWindow({ show = true } = {}) {
     try {
       const renderer = await mainWindow.webContents.executeJavaScript(`(async () => {
         const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
-        const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
         const bounds = (element) => {
           const rectangle = element.getBoundingClientRect();
           return { top: rectangle.top, right: rectangle.right, bottom: rectangle.bottom, left: rectangle.left, width: rectangle.width, height: rectangle.height };
         };
-        for (let attempt = 0; attempt < 50 && document.querySelector("#accountName").textContent === "Connecting…"; attempt += 1) await delay(50);
         window.codexDesktop.setTextScale(1.5);
         await nextFrame();
         await nextFrame();
@@ -2022,6 +2063,58 @@ function createWindow({ show = true } = {}) {
         };
       })()`);
       const capture = await mainWindow.webContents.capturePage();
+      const shortcutActivationTestArgument = process.argv.find((argument) => argument.startsWith("--test-shortcut-activation="));
+      const mainWasVisible = mainWindow.isVisible();
+      const activationCountBeforeProbe = quickPromptActivation.count;
+      let quickPromptProbe;
+      preserveCompanionForCompatibilityProbe = true;
+      try {
+        mainWindow.hide();
+        if (shortcutActivationTestArgument) {
+          const readyPath = path.resolve(shortcutActivationTestArgument.slice(shortcutActivationTestArgument.indexOf("=") + 1));
+          if (readyPath === temporaryRoot || !readyPath.startsWith(`${temporaryRoot}${path.sep}`)) {
+            throw new Error(`Shortcut activation marker path is outside the temporary directory: ${readyPath}`);
+          }
+          fs.writeFileSync(readyPath, `${JSON.stringify({
+            display: process.env.DISPLAY || null,
+            xauthority: process.env.XAUTHORITY || null,
+          })}\n`, { mode: 0o600 });
+          const deadline = Date.now() + 7_500;
+          while (quickPromptActivation.count === activationCountBeforeProbe && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+          if (quickPromptActivation.count === activationCountBeforeProbe) throw new Error("The registered global shortcut did not activate the quick prompt");
+        } else {
+          toggleCompanion("compatibility-probe");
+        }
+        const quickPromptDeadline = Date.now() + 5_000;
+        let quickPromptRenderer = null;
+        while (Date.now() < quickPromptDeadline) {
+          quickPromptRenderer = await Promise.race([
+            companionWindow.webContents.executeJavaScript(`(() => ({
+              readyState: document.readyState,
+              activeElement: document.activeElement?.id || null,
+              hasInput: Boolean(document.querySelector("#quickInput")),
+            }))()`),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Quick Prompt renderer did not respond within 5 seconds")), 5_000)),
+          ]);
+          if (quickPromptRenderer.readyState === "complete" && quickPromptRenderer.hasInput && quickPromptRenderer.activeElement === "quickInput") break;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        quickPromptProbe = {
+          activationTested: Boolean(shortcutActivationTestArgument),
+          mainHidden: !mainWindow.isVisible(),
+          companionVisible: companionWindow.isVisible(),
+          companionFocused: companionWindow.isFocused(),
+          companionDestroyed: companionWindow.isDestroyed(),
+          renderer: quickPromptRenderer,
+          activation: { ...quickPromptActivation },
+        };
+      } finally {
+        preserveCompanionForCompatibilityProbe = false;
+        companionWindow.hide();
+        if (mainWasVisible) mainWindow.show();
+      }
       const desktop = desktopState();
       fs.writeFileSync(outputPath, `${JSON.stringify({
         schemaVersion: 1,
@@ -2051,6 +2144,7 @@ function createWindow({ show = true } = {}) {
         renderer,
         desktop: {
           shortcut: desktop.shortcut,
+          quickPrompt: quickPromptProbe,
           tray: desktop.tray,
           notifications: desktop.notifications,
         },
@@ -2154,14 +2248,26 @@ function rejectDeepLink(message, source) {
 }
 
 async function handleDeepLinkArgument(argument, source) {
-  showMainWindow();
   let action;
   try {
     action = parseDeepLink(argument);
   } catch (error) {
+    showMainWindow();
     rejectDeepLink(error.message, source);
     return;
   }
+
+  if (action.kind === "quickPrompt") {
+    deepLinkState.handled += 1;
+    deepLinkState.lastKind = action.kind;
+    deepLinkState.lastSource = source;
+    deepLinkState.lastError = null;
+    log("info", "deep_link.handled", { source, kind: action.kind });
+    toggleCompanion("deep-link");
+    return;
+  }
+
+  showMainWindow();
 
   if (action.kind === "project") {
     let realPath;
@@ -2208,28 +2314,91 @@ function createCompanionWindow() {
   });
   secureWebContents(companionWindow.webContents);
   companionWindow.loadFile(path.join(__dirname, "../renderer/companion.html"));
-  companionWindow.on("blur", () => companionWindow.hide());
+  companionWindow.on("blur", () => {
+    if (!preserveCompanionForCompatibilityProbe) companionWindow.hide();
+  });
 }
 
-function toggleCompanion() {
+function toggleCompanion(source = "unknown") {
   if (!companionWindow) return;
-  if (companionWindow.isVisible()) companionWindow.hide();
-  else { companionWindow.center(); companionWindow.show(); companionWindow.focus(); companionWindow.webContents.send("companion:focus"); }
+  let action;
+  if (companionWindow.isVisible()) {
+    action = "hide";
+    companionWindow.hide();
+  } else {
+    action = "show";
+    companionWindow.center();
+    companionWindow.show();
+    companionWindow.focus();
+    companionWindow.webContents.send("companion:focus");
+  }
+  quickPromptActivation.count += 1;
+  quickPromptActivation.lastSource = source;
+  quickPromptActivation.lastAction = action;
+  quickPromptActivation.lastTriggeredAt = new Date().toISOString();
+  log("info", "quick_prompt.activated", {
+    source,
+    action,
+    visible: companionWindow.isVisible(),
+    focused: companionWindow.isFocused(),
+  });
 }
 
-function registerQuickPromptShortcut(preferences = desktopPreferences()) {
-  if (shortcutAccelerator) globalShortcut.unregister(shortcutAccelerator);
+async function applyQuickPromptShortcut(preferences = desktopPreferences()) {
+  if (shortcutMethod === "electron") globalShortcut.unregisterAll();
   shortcutRequested = preferences.quickPromptShortcut;
   shortcutRegistered = false;
   shortcutAccelerator = null;
   shortcutError = null;
+  shortcutMethod = null;
+  managedShortcutStatus = null;
   const candidates = shortcutCandidates(preferences);
-  if (!candidates.length) return false;
+  if (shortcutRegistrationDisabledForTest) {
+    shortcutError = "Global shortcut registration is disabled in packaged automation to avoid changing live desktop bindings.";
+    return false;
+  }
+
+  const gnomeSession = gnomeShortcut.session;
+  const manageWithGnome = app.isPackaged && !desktopCompatibilityTestMode && gnomeSession.supported;
+  if (!candidates.length) {
+    if (app.isPackaged && !desktopCompatibilityTestMode && gnomeSession.isGnome) {
+      try { managedShortcutStatus = await gnomeShortcut.remove(); }
+      catch (error) {
+        managedShortcutStatus = { removed: false, error: error.message };
+        shortcutError = `The GNOME shortcut could not be removed: ${error.message}`;
+      }
+    }
+    return false;
+  }
+
+  if (manageWithGnome) {
+    try {
+      managedShortcutStatus = await gnomeShortcut.install(candidates[0]);
+      if (managedShortcutStatus.installed) {
+        shortcutRegistered = true;
+        shortcutAccelerator = candidates[0];
+        shortcutMethod = "gnome-custom";
+        return true;
+      }
+      shortcutError = "GNOME could not install the Quick Prompt shortcut.";
+    } catch (error) {
+      managedShortcutStatus = { installed: false, error: error.message, session: gnomeSession };
+      shortcutError = `GNOME could not install the Quick Prompt shortcut: ${error.message}`;
+    }
+    log("warn", "quick_prompt.gnome_shortcut_failed", { message: shortcutError });
+    return false;
+  }
+
+  if (app.isPackaged && !desktopCompatibilityTestMode && gnomeSession.isGnome) {
+    try { managedShortcutStatus = await gnomeShortcut.remove(); }
+    catch (error) { log("warn", "quick_prompt.gnome_shortcut_cleanup_failed", { message: error.message }); }
+  }
   for (const accelerator of candidates) {
     try {
-      if (globalShortcut.register(accelerator, toggleCompanion)) {
+      if (globalShortcut.register(accelerator, () => toggleCompanion("global-shortcut"))) {
         shortcutRegistered = true;
         shortcutAccelerator = accelerator;
+        shortcutMethod = "electron";
         return true;
       }
     } catch (error) {
@@ -2242,8 +2411,18 @@ function registerQuickPromptShortcut(preferences = desktopPreferences()) {
   return false;
 }
 
+function registerQuickPromptShortcut(preferences = desktopPreferences()) {
+  const normalized = normalizeDesktopPreferences(preferences);
+  shortcutRegistrationPromise = shortcutRegistrationPromise
+    .catch(() => false)
+    .then(() => applyQuickPromptShortcut(normalized));
+  return shortcutRegistrationPromise;
+}
+
 function updateTray(preferences = desktopPreferences()) {
   if (!preferences.trayEnabled) {
+    if (trayIconRepublishTimer) clearTimeout(trayIconRepublishTimer);
+    trayIconRepublishTimer = null;
     tray?.destroy();
     tray = null;
     trayError = null;
@@ -2251,18 +2430,43 @@ function updateTray(preferences = desktopPreferences()) {
   }
   try {
     if (!tray) {
-      tray = new Tray(nativeImage.createFromBuffer(createTrayIconPng(20)));
+      const trayIconPng = createTrayIconPng(20);
+      const gnomeSession = detectGnomeWaylandSession();
+      const createdTray = withGnomeStatusNotifierPixmap(
+        () => new Tray(nativeImage.createFromBuffer(trayIconPng)),
+        { isGnome: gnomeSession.isGnome },
+      );
+      tray = createdTray;
       tray.on("click", showMainWindow);
+
+      // Ubuntu AppIndicators can subscribe before Chromium finishes publishing
+      // a StatusNotifier icon and remain on image-loading-symbolic. Re-publish
+      // the pixmap once the proxy is ready so late subscribers receive it too.
+      if (process.platform === "linux" && gnomeSession.isGnome) {
+        trayIconRepublishTimer = setTimeout(() => {
+          trayIconRepublishTimer = null;
+          if (tray !== createdTray || createdTray.isDestroyed?.()) return;
+          try {
+            createdTray.setImage(nativeImage.createFromBuffer(trayIconPng));
+            log("info", "desktop.tray_icon_republished", { delayMs: 1000 });
+          } catch (error) {
+            log("warn", "desktop.tray_icon_republish_failed", { message: error.message });
+          }
+        }, 1000);
+        trayIconRepublishTimer.unref?.();
+      }
     }
     tray.setToolTip("Codex Linux Community");
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: "Show Codex", click: showMainWindow },
-      { label: "Quick prompt", accelerator: shortcutAccelerator || undefined, click: toggleCompanion },
+      { label: "Quick prompt", accelerator: shortcutAccelerator || undefined, click: () => toggleCompanion("tray") },
       { type: "separator" },
       { label: "Quit", click: () => { isQuitting = true; app.quit(); } },
     ]));
     trayError = null;
   } catch (error) {
+    if (trayIconRepublishTimer) clearTimeout(trayIconRepublishTimer);
+    trayIconRepublishTimer = null;
     tray?.destroy();
     tray = null;
     trayError = `Tray unavailable: ${error.message}`;
@@ -2358,7 +2562,7 @@ if (singleInstanceLockAcquired) app.on("second-instance", (_event, argv, _workin
   else showMainWindow();
 });
 
-if (singleInstanceLockAcquired) app.whenReady().then(() => {
+if (singleInstanceLockAcquired) app.whenReady().then(async () => {
   performanceLedger.record("appReady", Date.now() - startedAt);
   sessionMarkerPath = path.join(app.getPath("userData"), "running.lock");
   previousUncleanShutdown = fs.existsSync(sessionMarkerPath);
@@ -2376,7 +2580,7 @@ if (singleInstanceLockAcquired) app.whenReady().then(() => {
   const backgroundStartup = startedByAutostart && !initialDeepLinkArgument;
   createWindow({ show: !backgroundStartup });
   createCompanionWindow();
-  registerQuickPromptShortcut();
+  await registerQuickPromptShortcut();
   updateTray();
   if (backgroundStartup && !tray) showMainWindow();
   log("info", "desktop.startup_mode", { autostart: startedByAutostart, background: backgroundStartup && Boolean(tray) });
@@ -2397,8 +2601,10 @@ app.on("before-quit", () => { isQuitting = true; });
 app.on("will-quit", () => {
   if (updateCheckTimer) clearTimeout(updateCheckTimer);
   if (updateCheckInterval) clearInterval(updateCheckInterval);
+  if (trayIconRepublishTimer) clearTimeout(trayIconRepublishTimer);
   updateCheckTimer = null;
   updateCheckInterval = null;
+  trayIconRepublishTimer = null;
   globalShortcut.unregisterAll();
   tray?.destroy();
   tray = null;

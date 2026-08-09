@@ -28,6 +28,19 @@ assert.ok(fs.statSync(appImagePath).isFile(), `AppImage not found: ${appImagePat
 assert.ok(fs.statSync(debPath).isFile(), `Debian package not found: ${debPath}`);
 
 const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "codex-linux-desktop-compatibility-"));
+const appImageExtractionRoot = path.join(temporaryDirectory, "appimage");
+fs.mkdirSync(appImageExtractionRoot, { recursive: true });
+const appImageExtraction = spawnSync(appImagePath, ["--appimage-extract"], {
+  cwd: appImageExtractionRoot,
+  encoding: "utf8",
+});
+assert.equal(
+  appImageExtraction.status,
+  0,
+  `Could not extract the AppImage\n${appImageExtraction.stdout || ""}${appImageExtraction.stderr || ""}`,
+);
+const appImageExecutable = path.join(appImageExtractionRoot, "squashfs-root", "AppRun");
+assert.ok(fs.statSync(appImageExecutable).isFile(), `Extracted AppImage launcher not found: ${appImageExecutable}`);
 const extractedDeb = path.join(temporaryDirectory, "deb");
 const extraction = spawnSync("dpkg-deb", ["--extract", debPath, extractedDeb], {
   cwd: projectRoot,
@@ -42,6 +55,18 @@ const debExecutable = path.join(extractedDeb, "opt", packageJson.build.productNa
 assert.ok(fs.statSync(debExecutable).isFile(), `Extracted Debian executable not found: ${debExecutable}`);
 
 const xvfbRun = ["/usr/bin/xvfb-run", "/usr/local/bin/xvfb-run"].find((candidate) => fs.existsSync(candidate));
+const xdotool = (process.env.PATH || "")
+  .split(path.delimiter)
+  .filter(Boolean)
+  .map((directory) => path.join(directory, "xdotool"))
+  .find((candidate) => {
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
 const hasX11 = Boolean(process.env.DISPLAY || xvfbRun);
 const hasWayland = Boolean(process.env.WAYLAND_DISPLAY && process.env.XDG_RUNTIME_DIR);
 const requestedBackends = (process.env.DESKTOP_COMPATIBILITY_BACKENDS || "")
@@ -59,18 +84,18 @@ for (const backend of backends) {
 }
 
 const packages = [
-  { id: "appimage", expectedType: "appimage", executable: appImagePath, appImage: true },
-  { id: "deb", expectedType: "deb", executable: debExecutable, appImage: false },
+  { id: "appimage", expectedType: "appimage", executable: appImageExecutable },
+  { id: "deb", expectedType: "deb", executable: debExecutable },
 ];
 
-function isolatedEnvironment(label, backend, appImage) {
+function isolatedEnvironment(label, backend, packageType) {
   const root = path.join(temporaryDirectory, label);
   const home = path.join(root, "home");
   const runtime = path.join(root, "runtime");
   fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(runtime, { recursive: true, mode: 0o700 });
   return {
-    ...(appImage ? { APPIMAGE_EXTRACT_AND_RUN: "1" } : {}),
+    ...(packageType === "appimage" ? { APPIMAGE: appImagePath } : {}),
     CI: "1",
     HOME: home,
     LANG: "C.UTF-8",
@@ -94,14 +119,19 @@ function isolatedEnvironment(label, backend, appImage) {
 function launch(packageTarget, backend) {
   const label = `${packageTarget.id}-${backend}`;
   const reportPath = path.join(temporaryDirectory, `${label}.json`);
+  const useXvfb = backend === "x11" && !process.env.DISPLAY && Boolean(xvfbRun);
+  const shortcutActivationPath = useXvfb && xdotool
+    ? path.join(temporaryDirectory, `${label}-shortcut-activation.json`)
+    : null;
   const output = [];
   const applicationArguments = [
     `--ozone-platform=${backend}`,
     "--disable-gpu",
     "--no-sandbox",
     `--test-desktop-compatibility=${reportPath}`,
+    ...(shortcutActivationPath ? [`--test-shortcut-activation=${shortcutActivationPath}`] : []),
+    ...(!shortcutActivationPath ? ["--test-disable-global-shortcut"] : []),
   ];
-  const useXvfb = backend === "x11" && !process.env.DISPLAY && xvfbRun;
   const command = useXvfb ? xvfbRun : packageTarget.executable;
   const args = useXvfb
     ? ["-a", packageTarget.executable, ...applicationArguments]
@@ -109,7 +139,7 @@ function launch(packageTarget, backend) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: projectRoot,
-      env: isolatedEnvironment(label, backend, packageTarget.appImage),
+      env: isolatedEnvironment(label, backend, packageTarget.expectedType),
       stdio: ["ignore", "pipe", "pipe"],
     });
     const collect = (chunk) => {
@@ -118,12 +148,59 @@ function launch(packageTarget, backend) {
     };
     child.stdout.on("data", collect);
     child.stderr.on("data", collect);
-    child.once("error", reject);
-    const timer = setTimeout(() => {
+    let settled = false;
+    let activationSent = false;
+    let timer = null;
+    const markerTimer = shortcutActivationPath ? setInterval(() => {
+      if (settled || activationSent || !fs.existsSync(shortcutActivationPath)) return;
+      let marker;
+      try {
+        marker = JSON.parse(fs.readFileSync(shortcutActivationPath, "utf8"));
+      } catch {
+        return;
+      }
+      const display = marker.DISPLAY || marker.display;
+      const xauthority = marker.XAUTHORITY ?? marker.xauthority;
+      if (typeof display !== "string" || !display.trim()) return;
+      activationSent = true;
+      const activation = spawnSync(xdotool, ["key", "--clearmodifiers", "ctrl+shift+space"], {
+        cwd: projectRoot,
+        encoding: "utf8",
+        timeout: 5000,
+        env: {
+          ...process.env,
+          DISPLAY: display,
+          ...(typeof xauthority === "string" && xauthority ? { XAUTHORITY: xauthority } : {}),
+        },
+      });
+      if (activation.stdout) collect(activation.stdout);
+      if (activation.stderr) collect(activation.stderr);
+      if (activation.error || activation.status !== 0) {
+        settled = true;
+        clearInterval(markerTimer);
+        clearTimeout(timer);
+        child.kill("SIGKILL");
+        reject(new Error(`${label} could not activate the global shortcut with xdotool (${activation.error?.message || activation.signal || activation.status || "unknown"})\n${output.join("")}`));
+      }
+    }, 50) : null;
+    child.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      if (markerTimer) clearInterval(markerTimer);
+      clearTimeout(timer);
+      reject(error);
+    });
+    timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      if (markerTimer) clearInterval(markerTimer);
       child.kill("SIGKILL");
       reject(new Error(`${label} timed out\n${output.join("")}`));
     }, 45_000);
     child.once("exit", (code, signal) => {
+      if (settled) return;
+      settled = true;
+      if (markerTimer) clearInterval(markerTimer);
       clearTimeout(timer);
       if (code !== 0) {
         reject(new Error(`${label} failed (${signal || code || "unknown"})\n${output.join("")}`));
@@ -178,7 +255,27 @@ function verify(report, packageTarget, backend) {
   assert.ok(studio.templateEditor.action.top >= studio.templateEditor.bounds.top - 1, "Studio template action extends above its editor");
   assert.ok(studio.templateEditor.action.bottom <= Math.min(studio.templateEditor.bounds.bottom, viewportHeight) + 1, "Studio template action is unreachable at high zoom");
   assert.equal(typeof report.desktop?.shortcut?.registered, "boolean");
-  assert.ok(report.desktop.shortcut.registered || report.desktop.shortcut.error);
+  assert.equal(report.desktop.shortcut.portalFeatureEnabled, true);
+  assert.equal(report.desktop.quickPrompt.mainHidden, true);
+  assert.equal(report.desktop.quickPrompt.companionVisible, true);
+  assert.equal(report.desktop.quickPrompt.companionDestroyed, false);
+  assert.equal(report.desktop.quickPrompt.renderer.readyState, "complete");
+  assert.equal(report.desktop.quickPrompt.renderer.hasInput, true);
+  assert.equal(report.desktop.quickPrompt.renderer.activeElement, "quickInput");
+  if (!report.desktop.quickPrompt.activationTested) {
+    assert.equal(report.desktop.shortcut.testDisabled, true);
+    assert.equal(report.desktop.shortcut.registered, false);
+    assert.equal(report.desktop.shortcut.confirmed, false);
+    assert.match(report.desktop.shortcut.error || "", /disabled in packaged automation/);
+    assert.equal(report.desktop.quickPrompt.activation.lastSource, "compatibility-probe");
+  } else {
+    assert.equal(report.desktop.shortcut.testDisabled, false);
+    assert.equal(report.desktop.shortcut.registered, true);
+    assert.equal(report.desktop.shortcut.confirmed, true);
+    assert.equal(report.desktop.shortcut.accelerator, report.desktop.shortcut.requested);
+    assert.equal(report.desktop.quickPrompt.activationTested, true);
+    assert.equal(report.desktop.quickPrompt.activation.lastSource, "global-shortcut");
+  }
   assert.equal(report.desktop?.tray?.enabled, true);
   assert.ok(report.desktop.tray.available || report.desktop.tray.error);
   assert.equal(typeof report.desktop?.notifications?.supported, "boolean");
@@ -197,6 +294,7 @@ try {
       cases.push(report);
     }
   }
+  const shortcutActivationTested = cases.some((report) => report.desktop?.quickPrompt?.activationTested === true);
   const result = {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
@@ -210,6 +308,9 @@ try {
     coverage: {
       packages: packages.map(({ id }) => id),
       backends,
+      quickPromptShortcut: shortcutActivationTested
+        ? "real X11 accelerator activation plus companion-window behavior; native Wayland delivery remains manual"
+        : "companion-window behavior only; native desktop accelerator delivery remains manual",
       snap: "metadata and payload integrity are covered by artifact verification; installed Snap behavior remains manual",
     },
     cases,

@@ -1,5 +1,6 @@
 export const DEFAULT_SHORTCUT = "CommandOrControl+Shift+Space";
 export const FALLBACK_SHORTCUT = "Alt+Shift+Space";
+export const GLOBAL_SHORTCUTS_PORTAL_FEATURE = "GlobalShortcutsPortal";
 export const TEXT_SCALE_OPTIONS = Object.freeze([1, 1.1, 1.25, 1.5]);
 export const SHORTCUT_OPTIONS = [
   DEFAULT_SHORTCUT,
@@ -50,6 +51,25 @@ export function mergeDesktopPreferences(current, updates = {}) {
     if (Object.hasOwn(updates, key)) allowed[key] = updates[key];
   }
   return normalizeDesktopPreferences({ ...normalized, ...allowed });
+}
+
+export function mergeChromiumFeatures(current = "", requiredFeatures = []) {
+  const required = Array.isArray(requiredFeatures) ? requiredFeatures : [requiredFeatures];
+  const features = [current, ...required]
+    .flatMap((value) => typeof value === "string" ? value.split(",") : [])
+    .map((feature) => feature.trim())
+    .filter(Boolean);
+  return [...new Set(features)].join(",");
+}
+
+export function desktopPreferenceEffects(previous, next) {
+  const before = normalizeDesktopPreferences(previous);
+  const after = normalizeDesktopPreferences(next);
+  const reregisterShortcut = before.quickPromptShortcut !== after.quickPromptShortcut;
+  return {
+    reregisterShortcut,
+    refreshTray: reregisterShortcut || before.trayEnabled !== after.trayEnabled,
+  };
 }
 
 export function shortcutCandidates(preferences) {

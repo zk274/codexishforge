@@ -296,9 +296,13 @@ function renderDesktopPreferences() {
   if (!preferences.quickPromptShortcut) els.shortcutPreferenceStatus.textContent = "Global quick prompt is disabled.";
   else if (desktop.shortcut.registered) {
     els.shortcutPreferenceStatus.classList.add("good");
-    els.shortcutPreferenceStatus.textContent = desktop.shortcut.accelerator === desktop.shortcut.requested
-      ? `${desktop.shortcut.accelerator} is active.`
-      : `${desktop.shortcut.accelerator} is active because the preferred shortcut was unavailable.`;
+    if (desktop.shortcut.method === "gnome-custom") {
+      els.shortcutPreferenceStatus.textContent = `${desktop.shortcut.accelerator} is active through GNOME.`;
+    } else {
+      els.shortcutPreferenceStatus.textContent = desktop.shortcut.accelerator === desktop.shortcut.requested
+        ? `${desktop.shortcut.accelerator} is active.`
+        : `${desktop.shortcut.accelerator} is active because the preferred shortcut was unavailable.`;
+    }
   } else {
     els.shortcutPreferenceStatus.classList.add("warn");
     els.shortcutPreferenceStatus.textContent = desktop.shortcut.error || "The shortcut could not be registered. It may be reserved by another application.";

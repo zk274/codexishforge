@@ -3,13 +3,16 @@ import test from "node:test";
 import {
   DEFAULT_DESKTOP_PREFERENCES,
   FALLBACK_SHORTCUT,
+  GLOBAL_SHORTCUTS_PORTAL_FEATURE,
   TEXT_SCALE_OPTIONS,
+  desktopPreferenceEffects,
+  mergeChromiumFeatures,
   mergeDesktopPreferences,
   normalizeDesktopPreferences,
   shouldHideOnClose,
   shortcutCandidates,
 } from "../src/main/desktop-preferences.mjs";
-import { createTrayIconPng } from "../src/main/tray-icon.mjs";
+import { createTrayIconPng, withGnomeStatusNotifierPixmap } from "../src/main/tray-icon.mjs";
 
 test("desktop preferences normalize defaults and reject unsupported shortcuts", () => {
   assert.deepEqual(normalizeDesktopPreferences(), DEFAULT_DESKTOP_PREFERENCES);
@@ -73,6 +76,56 @@ test("notification preferences default on and can be configured independently", 
   assert.equal(mergeDesktopPreferences(DEFAULT_DESKTOP_PREFERENCES, { notifyApproval: false }).notifyApproval, false);
 });
 
+test("Wayland portal feature merging preserves existing Chromium features without duplicates", () => {
+  assert.equal(mergeChromiumFeatures("", GLOBAL_SHORTCUTS_PORTAL_FEATURE), GLOBAL_SHORTCUTS_PORTAL_FEATURE);
+  assert.equal(
+    mergeChromiumFeatures("UseOzonePlatform,WebRTCPipeWireCapturer", [GLOBAL_SHORTCUTS_PORTAL_FEATURE]),
+    `UseOzonePlatform,WebRTCPipeWireCapturer,${GLOBAL_SHORTCUTS_PORTAL_FEATURE}`,
+  );
+  assert.equal(
+    mergeChromiumFeatures(
+      ` UseOzonePlatform, ${GLOBAL_SHORTCUTS_PORTAL_FEATURE},UseOzonePlatform `,
+      [GLOBAL_SHORTCUTS_PORTAL_FEATURE],
+    ),
+    `UseOzonePlatform,${GLOBAL_SHORTCUTS_PORTAL_FEATURE}`,
+  );
+});
+
+test("desktop preference transition effects avoid unnecessary shortcut portal churn", () => {
+  const unrelatedUpdates = [
+    { textScale: 1.25 },
+    { reduceMotion: true },
+    { highContrast: true },
+    { screenReaderMode: true },
+    { notifyTurnComplete: false },
+    { notifyApproval: false },
+    { notifyTerminal: false },
+    { closeToTray: true },
+  ];
+
+  for (const updates of unrelatedUpdates) {
+    const next = mergeDesktopPreferences(DEFAULT_DESKTOP_PREFERENCES, updates);
+    assert.deepEqual(desktopPreferenceEffects(DEFAULT_DESKTOP_PREFERENCES, next), {
+      reregisterShortcut: false,
+      refreshTray: false,
+    });
+  }
+
+  const shortcutChanged = mergeDesktopPreferences(DEFAULT_DESKTOP_PREFERENCES, {
+    quickPromptShortcut: FALLBACK_SHORTCUT,
+  });
+  assert.deepEqual(desktopPreferenceEffects(DEFAULT_DESKTOP_PREFERENCES, shortcutChanged), {
+    reregisterShortcut: true,
+    refreshTray: true,
+  });
+
+  const trayChanged = mergeDesktopPreferences(DEFAULT_DESKTOP_PREFERENCES, { trayEnabled: false });
+  assert.deepEqual(desktopPreferenceEffects(DEFAULT_DESKTOP_PREFERENCES, trayChanged), {
+    reregisterShortcut: false,
+    refreshTray: true,
+  });
+});
+
 test("default shortcut has an automatic fallback while custom choices do not", () => {
   assert.deepEqual(shortcutCandidates(DEFAULT_DESKTOP_PREFERENCES), [DEFAULT_DESKTOP_PREFERENCES.quickPromptShortcut, FALLBACK_SHORTCUT]);
   assert.deepEqual(shortcutCandidates({ quickPromptShortcut: "CommandOrControl+Alt+Space" }), ["CommandOrControl+Alt+Space"]);
@@ -91,4 +144,36 @@ test("tray icon generator returns a valid PNG at the requested size", () => {
   assert.deepEqual([...image.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
   assert.equal(image.readUInt32BE(16), 20);
   assert.equal(image.readUInt32BE(20), 20);
+});
+
+test("GNOME tray creation selects pixmap transport without changing the session environment", () => {
+  const env = { XDG_CURRENT_DESKTOP: "ubuntu:GNOME", XDG_SESSION_TYPE: "wayland" };
+  const tray = { ready: true };
+  assert.equal(withGnomeStatusNotifierPixmap(() => {
+    assert.equal(env.XDG_CURRENT_DESKTOP, "XFCE");
+    return tray;
+  }, { platform: "linux", env, isGnome: true }), tray);
+  assert.equal(env.XDG_CURRENT_DESKTOP, "ubuntu:GNOME");
+
+  assert.throws(() => withGnomeStatusNotifierPixmap(() => {
+    assert.equal(env.XDG_CURRENT_DESKTOP, "XFCE");
+    throw new Error("tray failed");
+  }, { platform: "linux", env, isGnome: true }), /tray failed/);
+  assert.equal(env.XDG_CURRENT_DESKTOP, "ubuntu:GNOME");
+
+  const envWithoutDesktop = {};
+  withGnomeStatusNotifierPixmap(() => undefined, {
+    platform: "linux",
+    env: envWithoutDesktop,
+    isGnome: true,
+  });
+  assert.equal(Object.hasOwn(envWithoutDesktop, "XDG_CURRENT_DESKTOP"), false);
+
+  const passthroughEnvironment = { XDG_CURRENT_DESKTOP: "KDE" };
+  withGnomeStatusNotifierPixmap(() => {
+    assert.equal(passthroughEnvironment.XDG_CURRENT_DESKTOP, "KDE");
+  }, { platform: "linux", env: passthroughEnvironment, isGnome: false });
+  withGnomeStatusNotifierPixmap(() => {
+    assert.equal(env.XDG_CURRENT_DESKTOP, "ubuntu:GNOME");
+  }, { platform: "darwin", env, isGnome: true });
 });
