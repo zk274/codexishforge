@@ -83,20 +83,27 @@ This completes the installed classic Snap GNOME/Wayland check for version 0.9.0,
 
 ## Release-candidate desktop matrix
 
-| Desktop/session | AppImage | Debian | Classic Snap | Keyboard and screen reader | Status |
+The matrix is completed for one write-once candidate artifact set on the exact distribution and desktop versions selected in the release checklist. Record the package filename and SHA-256 for every result. Any rebuilt package requires a new version and tag and invalidates the manual results tied to its old digest; the 0.9 evidence above remains regression context only.
+
+| Desktop/session | AppImage | Debian | Classic Snap | Assigned Orca reference | Status |
 | --- | --- | --- | --- | --- | --- |
 | GNOME / Wayland | Required | Required | Required | Orca | Manual RC pass required |
 | GNOME / X11 | Required | Required | Required | Orca | Manual RC pass required |
 | KDE Plasma / Wayland | Required | Required | Required | Orca | Manual RC pass required |
 | KDE Plasma / X11 | Required | Required | Required | Orca | Manual RC pass required |
 
-For each row:
+For every AppImage, Debian, and classic Snap cell:
 
 1. Install or launch each package from a clean profile and confirm the app menu/launcher, deep link, upgrade channel, and uninstall behavior.
-2. Exercise the tray, close-to-tray, global quick-prompt shortcut, completion/approval notification, screenshot picker, region capture, camera, and file attachment.
+2. Exercise the tray, close-to-tray, global quick-prompt shortcut, completion and approval notifications, screenshot picker, region capture, camera, file attachment, and microphone/dictation when voice is supported.
 3. Navigate Home, threads, composer, terminal, Tasks, Review, Studio, Extensions, Settings, diagnostics, and every dialog without a pointer.
-4. With Orca enabled, verify labels, state changes, focus order/restoration, Escape behavior, one completion announcement, and one decision announcement without streaming-token chatter.
-5. Repeat at 150% text with reduced motion and high contrast; confirm that focus and actions remain visible.
+4. Repeat at 150% text with reduced motion, high contrast, and forced colors; confirm that focus and actions remain visible.
+
+For the one package and digest assigned as the Orca reference in each desktop/session row, additionally verify labels, state changes, focus order/restoration, Escape behavior, one completion announcement, one approval announcement, and one separate user-question announcement without streaming-token chatter.
+
+Finally:
+
+5. If voice remains supported for 1.0, exercise microphone permission and dictation start/stop behavior on the assigned reference package.
 6. Record the desktop and package versions, result, defects, and tester. Never record credentials, prompts, repository paths, or account information.
 
 These rows stay manual because a headless runner cannot honestly evaluate compositor integration, installed desktop entries, portal prompts, camera hardware, or spoken output.

@@ -54,9 +54,11 @@ An unofficial Linux desktop client powered by the installed OpenAI Codex CLI. It
 
 ## Requirements
 
-- A modern x86_64 or arm64 Linux desktop
+- A Linux distribution and GNOME/KDE desktop version named in the release's tested support matrix; “modern Linux” is not a blanket compatibility promise
+- An x86_64 (`amd64`) system for the currently verified release workflow. This is the recommended first-1.0 scope, pending the recorded release decision
+- The packaging configuration can produce arm64 development builds, but arm64 is not a supported release architecture unless its own artifacts, attestations, updater metadata, and complete package/session matrix pass the same gates
 - Node.js 22.12 or newer for development
-- The current [OpenAI Codex CLI](https://developers.openai.com/codex/cli/) installed and available as `codex`
+- The [OpenAI Codex CLI](https://developers.openai.com/codex/cli/) version named in the release's compatibility evidence, or another installed version whose advertised schema satisfies a known compatibility profile, available as `codex`
 - An authenticated CLI session (`codex login` or an API key supported by the CLI)
 - Optional: authenticated [GitHub CLI](https://cli.github.com/) for private issue, pull-request, review, Actions, policy, and draft-PR context; Git push uses the remote's configured credentials
 
@@ -146,14 +148,16 @@ npm run smoke:upgrade
 
 Packages are written to `dist/`. The build produces an AppImage, a `.deb` installer, and a classic-confinement `.snap`.
 
-`npm run release:verify` runs the complete sequence. Artifact verification checks package versions, architectures, Snap confinement, update metadata, sizes, and SHA-512 hashes. Release-trust verification generates SHA-256 checksums, a versioned manifest, and a CycloneDX SBOM that includes the packaged Electron runtime. Desktop compatibility verification launches AppImage and Debian payloads against each actually available Wayland/X11 backend and records renderer, window, tray, shortcut, notification, and pixel-capture evidence. Public release builds receive signed GitHub/Sigstore provenance and SBOM attestations; see [release integrity and provenance](docs/RELEASE-TRUST.md) and the [Linux desktop compatibility matrix](docs/DESKTOP-COMPATIBILITY.md).
+`npm run release:verify` runs the complete automated sequence. Artifact verification checks package versions, architectures, Snap confinement, update metadata, sizes, and SHA-512 hashes. Release-trust verification generates SHA-256 checksums, a versioned manifest, and a CycloneDX SBOM that includes the packaged Electron runtime. Desktop compatibility verification launches AppImage and extracted Debian payloads against each actually available Wayland/X11 backend and records renderer, window, tray, shortcut, notification-capability, and pixel-capture evidence. Snap metadata, payload, and launcher integrity are automated separately; native package installation, compositor integration, visible notification delivery, portals, camera hardware, real-account behavior, and spoken output remain exact-candidate manual gates.
+
+Public tagged release builds receive signed GitHub/Sigstore provenance and SBOM attestations and are staged as write-once draft GitHub Releases. The workflow refuses any existing release identity; after draft creation, another run or different bytes require a new version and tag. Verified release candidates are deliberately published as prereleases for beta-channel updater testing; the final `1.0.0` release is a separate exact build that repeats every prepublication gate. See [release integrity and provenance](docs/RELEASE-TRUST.md), the [release process](docs/RELEASING.md), the [1.0 release checklist](docs/RELEASE-CHECKLIST.md), and the [Linux desktop compatibility matrix](docs/DESKTOP-COMPATIBILITY.md).
 
 The packaged smoke tests use `xvfb-run` or an existing X display. They launch the AppImage with a clean home directory and minimal desktop `PATH`, then migrate real 0.8 settings, tasks, inbox, templates, and artifacts before reopening the same profile with the Debian package. Corrupt-primary recovery, newer-state protection, and preservation of CLI-owned authentication are also verified. GitHub Actions runs ordinary checks for every pull request and the full release gates for version tags or a manual dispatch.
 
 Classic confinement is intentional: Codex must open user-selected repositories and launch the host CLI. Install a local Snap build with:
 
 ```bash
-sudo snap install --classic --dangerous "dist/Codex Linux Community-0.9.0-amd64.snap"
+sudo snap install --classic --dangerous "dist/Codex-Linux-Community-0.9.0-amd64.snap"
 ```
 
 Publishing a classic snap in the Snap Store requires a confinement review.
@@ -162,7 +166,7 @@ Publishing a classic snap in the Snap Store requires a confinement review.
 
 Packaged AppImage and Debian builds can check GitHub Releases for updates. The stable channel reads `latest` metadata; the beta channel also accepts prerelease builds. Checks can run automatically, but downloads and installation always require explicit confirmation. Snap updates remain managed by the Snap Store.
 
-Release builds generate update metadata with SHA-512 artifact hashes. Update versions, file names, URLs, sizes, and hashes are validated before download is enabled; downgrades, automatic downloads, and automatic installation on quit are disabled. Stable versions use ordinary semantic versions such as `0.9.0`; beta versions use a suffix such as `1.0.0-beta.1` and must be published as GitHub prereleases. The build script configures both the metadata channel and release type, while publishing remains a separate, explicit action.
+Release builds generate update metadata with SHA-512 artifact hashes. Update versions, file names, URLs, sizes, and hashes are validated before download is enabled; downgrades, automatic downloads, and automatic installation on quit are disabled. Stable versions use ordinary semantic versions such as `1.0.0`; beta and release-candidate versions use suffixes such as `1.0.0-beta.1` and `1.0.0-rc.1` and must be deliberately published as GitHub prereleases before the beta updater can discover them. The build script configures the metadata channel and release type, while publishing remains a separate, explicit action.
 
 ## Architecture
 
@@ -176,13 +180,13 @@ Crash and compatibility reporting is disabled by default. Enabling it in Setting
 
 ## Current scope
 
-Version 0.9 is the stabilization milestone built on the CLI's experimental app-server protocol. Core local coding, Git review, optional GitHub collaboration, extension control, background tasks, worktrees, agent activity, local creation, search, templates, and capability-gated realtime voice are present. Cloud task management and public plugin browsing or installation are not yet exposed. Unknown server requests are rejected safely instead of being guessed. See [ROADMAP.md](ROADMAP.md) for the remaining 1.0 trust and distribution gates.
+Version 0.9 is the stabilization milestone built on the CLI's experimental app-server protocol. Core local coding, Git review, optional read-heavy GitHub collaboration plus draft-PR creation, extension control, background tasks, worktrees, agent activity, local creation, search, templates, and capability-gated realtime voice are present. The app does not mutate GitHub issues, resolve review threads, request reviewers, mark pull requests ready, or merge them. Cloud task management and public plugin browsing or installation are not yet exposed. Unknown server requests are rejected safely instead of being guessed. See [ROADMAP.md](ROADMAP.md) and the [1.0 release checklist](docs/RELEASE-CHECKLIST.md) for the remaining trust, compatibility, and distribution gates.
 
 ## Safety and privacy
 
 New foreground and background threads default to `workspace-write` sandboxing and `on-request` approvals. Subagents inherit the parent task’s Codex permission boundary. External links are restricted to HTTPS. All model and tool activity follows the permissions, managed policy, hooks, and configuration enforced by your installed Codex CLI.
 
-Detailed 0.9 records: [compatibility and recovery](docs/COMPATIBILITY.md), [Linux desktop compatibility](docs/DESKTOP-COMPATIBILITY.md), [performance budgets](docs/PERFORMANCE.md), [security review](docs/SECURITY.md), and [accessibility test matrix](docs/ACCESSIBILITY.md).
+Detailed 0.9 records: [compatibility and recovery](docs/COMPATIBILITY.md), [Linux desktop compatibility](docs/DESKTOP-COMPATIBILITY.md), [performance budgets](docs/PERFORMANCE.md), [security review](docs/SECURITY.md), and [accessibility test matrix](docs/ACCESSIBILITY.md). Stable and prerelease maintenance expectations are defined in the [support policy](docs/SUPPORT.md).
 
 ## License
 
@@ -190,4 +194,4 @@ MIT. “OpenAI” and “Codex” are trademarks of OpenAI; their use here ident
 
 ## Support
 
-Codex Linux Community remains free and open source. If the app is useful to you, optional maintenance sponsorship is available through [GitHub Sponsors](https://github.com/sponsors/zk274).
+Codex Linux Community remains free and open source. See the [support policy](docs/SUPPORT.md) before filing a non-sensitive issue. If the app is useful to you, optional maintenance sponsorship is available through [GitHub Sponsors](https://github.com/sponsors/zk274).

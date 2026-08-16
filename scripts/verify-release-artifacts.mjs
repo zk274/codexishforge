@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { releaseArtifactFile, releaseChannelForVersion } from "./release-trust-lib.mjs";
 import { classicSnapLauncher } from "./snap-launcher.mjs";
 
 const projectRoot = path.resolve(import.meta.dirname, "..");
@@ -18,11 +19,10 @@ const architecture = {
 
 assert.ok(architecture, `Release verification does not support ${process.arch}`);
 
-const baseName = packageJson.build.productName;
 const artifacts = {
-  appImage: path.join(distDirectory, `${baseName}-${packageJson.version}-${architecture.appImage}.AppImage`),
-  deb: path.join(distDirectory, `${baseName}-${packageJson.version}-${architecture.deb}.deb`),
-  snap: path.join(distDirectory, `${baseName}-${packageJson.version}-${architecture.snap}.snap`),
+  appImage: path.join(distDirectory, releaseArtifactFile(packageJson, architecture.appImage, "AppImage")),
+  deb: path.join(distDirectory, releaseArtifactFile(packageJson, architecture.deb, "deb")),
+  snap: path.join(distDirectory, releaseArtifactFile(packageJson, architecture.snap, "snap")),
 };
 
 function requireArtifact(filePath) {
@@ -80,9 +80,7 @@ assert.equal(
   "Classic Snap launcher must not depend on missing desktop helper scripts",
 );
 
-const prerelease = packageJson.version.split("-", 2)[1] || null;
-const channel = prerelease == null ? "latest" : /^beta(?:[.-]|$)/.test(prerelease) ? "beta" : null;
-assert.ok(channel, `Unsupported release channel in package version: ${packageJson.version}`);
+const channel = releaseChannelForVersion(packageJson.version);
 const updateMetadataPath = path.join(distDirectory, `${channel}-linux.yml`);
 const updateMetadata = fs.readFileSync(updateMetadataPath, "utf8");
 assert.match(updateMetadata, new RegExp(`^version: ${packageJson.version.replaceAll(".", "\\.")}$`, "m"));

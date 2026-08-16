@@ -6,6 +6,7 @@ import {
   RELEASE_SBOM_FILE,
   writeReleaseTrust,
 } from "./release-trust-lib.mjs";
+import { validateReleaseSbom } from "./validate-release-sbom.mjs";
 
 const projectRoot = path.resolve(import.meta.dirname, "..");
 const distDirectory = path.join(projectRoot, "dist");
@@ -78,6 +79,7 @@ try {
     timeout: 60_000,
   });
   const sbom = addPackagedElectron(JSON.parse(fs.readFileSync(generatedSbomPath, "utf8")));
+  await validateReleaseSbom(sbom);
   const result = await writeReleaseTrust({
     distDirectory,
     packageJson,

@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import { GitHubService, normalizeGitHubContext } from "../src/main/github-service.mjs";
 
@@ -35,4 +37,84 @@ test("GitHub service degrades safely when gh is unavailable", async () => {
   assert.equal(result.available, false);
   assert.match(result.reason, /Install GitHub CLI/);
   assert.deepEqual(result.issues, []);
+});
+
+test("GitHub service creates a draft pull request with a private temporary body file", async () => {
+  let invocation;
+  let bodyFile;
+  const service = new GitHubService({
+    runner: async (command, args, options) => {
+      invocation = { command, args, options };
+      bodyFile = args[args.indexOf("--body-file") + 1];
+      assert.equal(fs.readFileSync(bodyFile, "utf8"), "Explain the reviewed change.\n");
+      assert.equal(fs.statSync(bodyFile).mode & 0o777, 0o600);
+      return "https://github.com/owner/repo/pull/42\n";
+    },
+  });
+
+  const result = await service.createDraftPullRequest("/workspace/repo", {
+    title: "  Ship reviewed change  ",
+    body: "  Explain the reviewed change.  ",
+    base: "main",
+    head: "feature/reviewed-change",
+  });
+
+  assert.deepEqual(result, { url: "https://github.com/owner/repo/pull/42" });
+  assert.equal(invocation.command, "gh");
+  assert.deepEqual(invocation.args, [
+    "pr", "create", "--draft",
+    "--title", "Ship reviewed change",
+    "--body-file", bodyFile,
+    "--base", "main",
+    "--head", "feature/reviewed-change",
+  ]);
+  assert.deepEqual(invocation.options, { cwd: "/workspace/repo", timeout: 60_000 });
+  assert.equal(fs.existsSync(bodyFile), false);
+  assert.equal(fs.existsSync(path.dirname(bodyFile)), false);
+});
+
+test("GitHub service rejects invalid pull-request branches before invoking gh", async () => {
+  let calls = 0;
+  const service = new GitHubService({ runner: async () => { calls += 1; } });
+
+  await assert.rejects(
+    service.createDraftPullRequest("/workspace/repo", {
+      title: "Draft",
+      base: "main branch",
+      head: "feature/reviewed-change",
+    }),
+    /base branch is invalid/,
+  );
+  await assert.rejects(
+    service.createDraftPullRequest("/workspace/repo", {
+      title: "Draft",
+      base: "main",
+      head: "--force",
+    }),
+    /head branch is invalid/,
+  );
+  assert.equal(calls, 0);
+});
+
+test("GitHub service removes the temporary pull-request body after gh fails", async () => {
+  let bodyFile;
+  const service = new GitHubService({
+    runner: async (_command, args) => {
+      bodyFile = args[args.indexOf("--body-file") + 1];
+      assert.equal(fs.existsSync(bodyFile), true);
+      throw new Error("gh failed");
+    },
+  });
+
+  await assert.rejects(
+    service.createDraftPullRequest("/workspace/repo", {
+      title: "Draft",
+      body: "Body",
+      base: "main",
+      head: "feature/reviewed-change",
+    }),
+    /gh failed/,
+  );
+  assert.equal(fs.existsSync(bodyFile), false);
+  assert.equal(fs.existsSync(path.dirname(bodyFile)), false);
 });

@@ -3,6 +3,7 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { releaseArtifactFile } from "./release-trust-lib.mjs";
 
 const projectRoot = path.resolve(import.meta.dirname, "..");
 const fixtureDirectory = path.join(projectRoot, "test", "fixtures", "state-v0.8");
@@ -17,12 +18,12 @@ assert.ok(architecture, `Packaged upgrade testing does not support ${process.arc
 const appImagePath = path.join(
   projectRoot,
   "dist",
-  `${packageJson.build.productName}-${packageJson.version}-${architecture.appImage}.AppImage`,
+  releaseArtifactFile(packageJson, architecture.appImage, "AppImage"),
 );
 const debPath = path.join(
   projectRoot,
   "dist",
-  `${packageJson.build.productName}-${packageJson.version}-${architecture.deb}.deb`,
+  releaseArtifactFile(packageJson, architecture.deb, "deb"),
 );
 assert.ok(fs.statSync(appImagePath).isFile(), `AppImage not found: ${appImagePath}`);
 assert.ok(fs.statSync(debPath).isFile(), `Debian package not found: ${debPath}`);

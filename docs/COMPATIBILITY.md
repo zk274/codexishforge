@@ -11,7 +11,9 @@ Version 0.9 treats the installed Codex CLI as a versioned external interface. Be
 
 The schema fingerprint and highest complete profile are stored with settings. On the next launch, the app compares them with the new schema, reports newly unavailable capabilities, and never invents replacements for unknown methods.
 
-The 0.9 baseline was verified on 2026-07-29 with `codex-cli 0.146.0-alpha.3.1`. Its experimental schema produced fingerprint `8e5ad854964fbc038bd67f4a`, profile `creation-v2`, and no unavailable feature groups. This records a tested baseline, not a promise that an experimental upstream protocol will never change.
+The original 0.9 baseline was verified on 2026-07-29 with `codex-cli 0.146.0-alpha.3.1`. Its experimental schema produced fingerprint `8e5ad854964fbc038bd67f4a`, profile `creation-v2`, and no unavailable feature groups.
+
+On 2026-08-09, the current development head was rechecked with `codex-cli 0.146.0-alpha.9.2`. Its experimental schema produced fingerprint `b6f6c624723c202169ceed4b`, profile `creation-v2`, and no unavailable feature groups. The schema change did not remove a required capability. The exact 1.0 release candidate must record a fresh CLI version, fingerprint, profile, and unavailable-feature result; these development baselines are evidence, not a promise that an experimental upstream protocol will never change.
 
 ## Local-state migrations
 

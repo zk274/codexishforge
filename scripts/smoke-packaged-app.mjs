@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { releaseArtifactFile } from "./release-trust-lib.mjs";
 
 const projectRoot = path.resolve(import.meta.dirname, "..");
 const packageJson = JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf8"));
@@ -12,7 +13,7 @@ assert.ok(appImageArchitecture, `Packaged smoke testing does not support ${proce
 const appImagePath = path.join(
   projectRoot,
   "dist",
-  `${packageJson.build.productName}-${packageJson.version}-${appImageArchitecture}.AppImage`,
+  releaseArtifactFile(packageJson, appImageArchitecture, "AppImage"),
 );
 assert.ok(fs.statSync(appImagePath).isFile(), `AppImage not found: ${appImagePath}`);
 

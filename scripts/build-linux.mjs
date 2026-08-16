@@ -1,14 +1,13 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { releaseArtifactFile, releaseChannelForVersion } from "./release-trust-lib.mjs";
 import { patchClassicSnapLauncher, waitForStableArtifact } from "./snap-launcher.mjs";
 
 const builder = path.resolve("node_modules", ".bin", "electron-builder");
 const packageJson = JSON.parse(fs.readFileSync(path.resolve("package.json"), "utf8"));
 const { version } = packageJson;
-const prerelease = version.split("-", 2)[1] || null;
-const channel = prerelease == null ? "latest" : /^beta(?:[.-]|$)/.test(prerelease) ? "beta" : null;
-if (!channel) throw new Error(`Unsupported release channel in package version: ${version}`);
+const channel = releaseChannelForVersion(version);
 const releaseType = channel === "beta" ? "prerelease" : "release";
 const architecture = {
   x64: { appImage: "x86_64", deb: "amd64", snap: "amd64" },
@@ -17,7 +16,7 @@ const architecture = {
 if (!architecture) throw new Error(`Unsupported Linux architecture: ${process.arch}`);
 const artifactPath = (architectureName, extension) => path.resolve(
   "dist",
-  `${packageJson.build.productName}-${version}-${architectureName}.${extension}`,
+  releaseArtifactFile(packageJson, architectureName, extension),
 );
 const appImagePath = artifactPath(architecture.appImage, "AppImage");
 const debPath = artifactPath(architecture.deb, "deb");

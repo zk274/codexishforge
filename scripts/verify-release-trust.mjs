@@ -10,6 +10,7 @@ const result = await verifyReleaseTrust({
   distDirectory: path.join(projectRoot, "dist"),
   packageJson,
   electronVersion: electronPackage.version,
+  expectedSourceCommit: process.env.GITHUB_ACTIONS === "true" ? process.env.GITHUB_SHA : undefined,
 });
 
 console.log(JSON.stringify(result, null, 2));

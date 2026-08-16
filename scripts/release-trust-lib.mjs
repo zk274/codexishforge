@@ -8,11 +8,25 @@ export const RELEASE_MANIFEST_FILE = "release-manifest.json";
 export const RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 export const RELEASE_SBOM_FILE = "release-sbom.cdx.json";
 
-function channelForVersion(version) {
+export function releaseChannelForVersion(version) {
   const prerelease = version.split("-", 2)[1] || null;
-  const channel = prerelease == null ? "latest" : /^beta(?:[.-]|$)/.test(prerelease) ? "beta" : null;
+  const channel = prerelease == null ? "latest" : /^(?:beta|rc)(?:[.-]|$)/.test(prerelease) ? "beta" : null;
   assert.ok(channel, `Unsupported release channel in package version: ${version}`);
   return channel;
+}
+
+export function releaseArtifactStem(packageJson) {
+  const productName = packageJson?.build?.productName;
+  assert.equal(typeof productName, "string", "Release product name is required");
+  const stem = productName.trim().replace(/\s+/g, "-");
+  assert.match(stem, /^[A-Za-z0-9][A-Za-z0-9._-]*$/, "Release product name cannot form a safe artifact stem");
+  return stem;
+}
+
+export function releaseArtifactFile(packageJson, architecture, extension) {
+  assert.match(String(architecture || ""), /^[A-Za-z0-9_]+$/, "Release artifact architecture is invalid");
+  assert.match(String(extension || ""), /^[A-Za-z0-9]+$/, "Release artifact extension is invalid");
+  return `${releaseArtifactStem(packageJson)}-${packageJson.version}-${architecture}.${extension}`;
 }
 
 export function releaseLayout(packageJson, architecture = process.arch) {
@@ -21,16 +35,15 @@ export function releaseLayout(packageJson, architecture = process.arch) {
     arm64: { appImage: "arm64", deb: "arm64", snap: "arm64" },
   }[architecture];
   assert.ok(names, `Release trust metadata does not support ${architecture}`);
-  const productName = packageJson.build.productName;
   const version = packageJson.version;
-  const channel = channelForVersion(version);
+  const channel = releaseChannelForVersion(version);
   return {
     architecture,
     channel,
     artifacts: [
-      { kind: "appimage", file: `${productName}-${version}-${names.appImage}.AppImage` },
-      { kind: "deb", file: `${productName}-${version}-${names.deb}.deb` },
-      { kind: "snap", file: `${productName}-${version}-${names.snap}.snap` },
+      { kind: "appimage", file: releaseArtifactFile(packageJson, names.appImage, "AppImage") },
+      { kind: "deb", file: releaseArtifactFile(packageJson, names.deb, "deb") },
+      { kind: "snap", file: releaseArtifactFile(packageJson, names.snap, "snap") },
       { kind: "update-metadata", file: `${channel}-linux.yml` },
     ],
   };
@@ -144,6 +157,7 @@ export async function verifyReleaseTrust({
   packageJson,
   architecture = process.arch,
   electronVersion = null,
+  expectedSourceCommit,
 } = {}) {
   const layout = releaseLayout(packageJson, architecture);
   const checksumsPath = path.join(distDirectory, RELEASE_CHECKSUMS_FILE);
@@ -166,6 +180,11 @@ export async function verifyReleaseTrust({
   assert.equal(manifest.product.appId, packageJson.build.appId);
   assert.equal(manifest.source.repository, packageJson.repository.url);
   assert.ok(manifest.source.commit === null || /^[a-f0-9]{40}$/.test(manifest.source.commit), "Manifest commit is invalid");
+  if (expectedSourceCommit !== undefined) {
+    const expectedCommit = validCommit(expectedSourceCommit);
+    assert.ok(expectedCommit, "Expected release source commit is invalid");
+    assert.equal(manifest.source.commit, expectedCommit, "Manifest source commit does not match the release workflow commit");
+  }
   assert.equal(manifest.source.workflow, ".github/workflows/release-gates.yml");
   assert.deepEqual(manifest.build, {
     platform: "linux",

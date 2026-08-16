@@ -8,24 +8,58 @@ on:
 
 permissions:
   contents: read
-  id-token: write
-  attestations: write
 
 concurrency:
   group: release-gates-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  linux-packages:
-    name: Build and verify Linux packages
+  release-preflight:
+    name: Validate immutable release identity
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 5
+    permissions:
+      contents: read
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
+      - name: Check out complete release identity
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+
+      - name: Verify version, commit, and annotated tag
+        run: npm run verify:release-context
+
+      - name: Refuse an existing public release before building or signing
+        if: ${{ github.ref_type == 'tag' && github.event.repository.visibility == 'public' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Refusing to replace any existing release for $GITHUB_REF_NAME; create a new version and tag" >&2
+            exit 1
+          fi
+
+  linux-packages:
+    name: Build and verify Linux packages
+    needs: release-preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
           cache: npm
@@ -41,37 +75,15 @@ jobs:
       - name: Run release verification
         run: npm run release:verify
 
-      - name: Attest release provenance
-        if: github.event.repository.visibility == 'public'
-        id: provenance
-        uses: actions/attest@v4
-        with:
-          subject-checksums: dist/SHA256SUMS
-
-      - name: Preserve provenance bundle
-        if: github.event.repository.visibility == 'public'
-        run: cp "${{ steps.provenance.outputs.bundle-path }}" dist/release-provenance.sigstore.json
-
-      - name: Attest release SBOM
-        if: github.event.repository.visibility == 'public'
-        id: sbom
-        uses: actions/attest@v4
-        with:
-          subject-checksums: dist/SHA256SUMS
-          sbom-path: dist/release-sbom.cdx.json
-
-      - name: Preserve SBOM attestation bundle
-        if: github.event.repository.visibility == 'public'
-        run: cp "${{ steps.sbom.outputs.bundle-path }}" dist/release-sbom.sigstore.json
-
       - name: Defer hosted attestations while private
-        if: github.event.repository.visibility != 'public'
-        run: echo "Trust metadata is verified; GitHub/Sigstore attestations activate automatically when the repository is public."
+        if: ${{ github.ref_type != 'tag' || github.event.repository.visibility != 'public' }}
+        run: echo "Trust metadata is verified; GitHub/Sigstore attestations run only for a public tagged build."
 
       - name: Upload verified packages
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: codex-linux-community-${{ github.ref_name }}-${{ runner.arch }}
+          name: codex-linux-community-${{ github.run_id }}-${{ runner.arch }}-verified
+          overwrite: true
           if-no-files-found: error
           path: |
             dist/*.AppImage
@@ -83,5 +95,150 @@ jobs:
             dist/release-manifest.json
             dist/release-sbom.cdx.json
             dist/desktop-compatibility-report.json
-            dist/*.sigstore.json
           retention-days: 14
+
+  attest-release:
+    name: Attest verified public tag
+    needs: linux-packages
+    if: ${{ github.ref_type == 'tag' && github.event.repository.visibility == 'public' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - name: Download verified release bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: codex-linux-community-${{ github.run_id }}-${{ runner.arch }}-verified
+          path: dist
+
+      - name: Verify checksums before signing
+        working-directory: dist
+        run: sha256sum --check SHA256SUMS
+
+      - name: Attest release provenance
+        id: provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-checksums: dist/SHA256SUMS
+
+      - name: Preserve provenance bundle
+        run: cp "${{ steps.provenance.outputs.bundle-path }}" dist/release-provenance.sigstore.json
+
+      - name: Attest release SBOM
+        id: sbom
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-checksums: dist/SHA256SUMS
+          sbom-path: dist/release-sbom.cdx.json
+
+      - name: Preserve SBOM attestation bundle
+        run: cp "${{ steps.sbom.outputs.bundle-path }}" dist/release-sbom.sigstore.json
+
+      - name: Upload attested release bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: codex-linux-community-${{ github.run_id }}-${{ runner.arch }}-attested
+          if-no-files-found: error
+          overwrite: true
+          path: dist
+          retention-days: 14
+
+  publish-release:
+    name: Publish verified draft release
+    needs:
+      - linux-packages
+      - attest-release
+    if: ${{ github.ref_type == 'tag' && github.event.repository.visibility == 'public' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: release
+    permissions:
+      actions: read
+      attestations: read
+      contents: write
+    steps:
+      - name: Check out exact release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install trust verifier dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Download verified release bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: codex-linux-community-${{ github.run_id }}-${{ runner.arch }}-attested
+          path: dist
+
+      - name: Verify complete downloaded release set
+        run: npm run trust:verify
+
+      - name: Verify checksums and signed attestations
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha256sum --check SHA256SUMS
+          while IFS= read -r checksum_line; do
+            release_subject="${checksum_line#*  }"
+            gh attestation verify "$release_subject" \
+              --bundle release-provenance.sigstore.json \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-gates.yml" \
+              --source-digest "$GITHUB_SHA" \
+              --source-ref "$GITHUB_REF" \
+              --deny-self-hosted-runners
+            gh attestation verify "$release_subject" \
+              --bundle release-sbom.sigstore.json \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-gates.yml" \
+              --source-digest "$GITHUB_SHA" \
+              --source-ref "$GITHUB_REF" \
+              --predicate-type https://cyclonedx.org/bom \
+              --deny-self-hosted-runners
+          done < SHA256SUMS
+
+      - name: Create write-once draft release
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release_assets=(
+            SHA256SUMS
+            release-provenance.sigstore.json
+            release-sbom.sigstore.json
+          )
+          while IFS= read -r checksum_line; do
+            release_assets+=("${checksum_line#*  }")
+          done < SHA256SUMS
+
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Refusing to replace any existing release for $GITHUB_REF_NAME; create a new version and tag" >&2
+            exit 1
+          fi
+
+          release_flags=(
+            --repo "$GITHUB_REPOSITORY"
+            --verify-tag
+            --draft
+            --generate-notes
+            --title "$GITHUB_REF_NAME"
+          )
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            release_flags+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            "${release_assets[@]}" \
+            "${release_flags[@]}"

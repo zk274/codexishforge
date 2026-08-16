@@ -23,16 +23,18 @@ sha256sum --check SHA256SUMS
 After the repository is public and the release workflow has produced GitHub/Sigstore attestations, verify that a package came from this repository and its release workflow:
 
 ```bash
-gh attestation verify "Codex Linux Community-1.0.0-x86_64.AppImage" \
+gh attestation verify "Codex-Linux-Community-1.0.0-x86_64.AppImage" \
   --repo zk274/linuxcodexzk \
   --signer-workflow zk274/linuxcodexzk/.github/workflows/release-gates.yml
 ```
 
-Repeat the command for the Debian or Snap file being installed. Verification establishes the source repository, workflow, commit, and artifact digest; it does not claim that the software is free of vulnerabilities.
+Repeat the command for the Debian or Snap file being installed. Add `--predicate-type https://cyclonedx.org/bom` to verify the package's signed CycloneDX SBOM attestation. Verification establishes the source repository, workflow, commit, and artifact digest; it does not claim that the software is free of vulnerabilities.
 
-## Private development phase
+Public tag builds first verify that the exact version tag is annotated and refuse an existing release identity before building or signing. They then verify checksums and create both attestation bundles in a dedicated least-privilege job that does not execute repository code. A separate job re-verifies the complete downloaded release set and both attestations. After the protected `release` environment is approved, it creates a write-once **draft** GitHub Release and uploads the verified packages, update metadata, manifest, SBOM, checksums, and attestation bundles. The workflow repeats the existing-release refusal immediately before draft creation as a defense in depth. After draft creation, every subsequent run or different output requires a new version and tag. A run that fails before creating the draft may retry the same tag. Publishing remains a deliberate maintainer action. Stable versions use `latest-linux.yml`; both `beta` and `rc` versions use `beta-linux.yml` and become updater-visible only after the verified draft is deliberately published as a prerelease.
 
-The repository remains private until 1.0. GitHub-hosted artifact attestations for private repositories require GitHub Enterprise Cloud. The private release gate therefore generates and verifies the full checksum, manifest, and SBOM set but deliberately does not send private build identities to Sigstore's public transparency log. The attestation steps are visibility-gated and activate automatically for the public 1.0 release.
+## Private preparation phase
+
+The repository may remain private during 1.0 preparation, but the canonical repository must become public before the first attested RC tag. GitHub-hosted artifact attestations for private repositories require GitHub Enterprise Cloud. The private release gate therefore generates and verifies the full checksum, manifest, and SBOM set without sending private build identities to Sigstore's public transparency log. After the repository is public, the visibility-gated attestation steps activate for each RC and for the separate final `1.0.0` build.
 
 ## Release manifest v1
 

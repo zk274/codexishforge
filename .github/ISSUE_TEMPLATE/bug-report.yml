@@ -1,0 +1,61 @@
+name: Bug report
+description: Report a reproducible, non-sensitive defect
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Do not include credentials, prompts, responses, account identifiers, private repository content, or complete local paths. Use the repository Security tab for vulnerabilities.
+  - type: input
+    id: version
+    attributes:
+      label: App version and package
+      description: For example, 1.0.0-rc.1 Debian amd64.
+    validations:
+      required: true
+  - type: input
+    id: desktop
+    attributes:
+      label: Linux, desktop, and session
+      description: For example, Ubuntu 26.04, GNOME 50, Wayland.
+    validations:
+      required: true
+  - type: input
+    id: codex
+    attributes:
+      label: Codex CLI version and compatibility profile
+      description: Copy only the bounded version/profile fields from Diagnostics.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Use a disposable project and redact sensitive values.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostic evidence
+      description: Paste only the app's shareable/redacted summary or attach a bounded screenshot.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed credentials, account data, private content, prompts/responses, and complete local paths.
+          required: true

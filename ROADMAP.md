@@ -49,7 +49,7 @@ Codex Linux Community is a repository-first desktop coding agent. Desktop conven
 ## 0.5 — Release confidence and extension control
 
 - [x] Continuous integration for renderer builds, syntax checks, and the complete test suite
-- [x] Reproducible AppImage, Debian, and Snap release gates with metadata and update-hash inspection
+- [x] Repeatable AppImage, Debian, and Snap release gates with metadata and update-hash inspection
 - [x] Packaged launch smoke tests with a clean home directory and minimal desktop `PATH`
 - [x] Deterministic login/logout and approval-flow fixtures
 - [x] In-app discovery and management for installed skills, plugins, and MCP servers
@@ -84,7 +84,7 @@ Codex Linux Community is a repository-first desktop coding agent. Desktop conven
 - [x] Settings and local-state migrations with rollback-safe recovery
 - [x] Performance budgets for startup, large threads, diffs, and terminal output
 - [x] Security review of IPC, external links, package updates, attachments, and diagnostic redaction
-- [x] Accessibility conformance pass, screen-reader mode, and a reproducible assistive-technology test matrix
+- [x] Accessibility conformance pass, screen-reader mode, and a repeatable assistive-technology test matrix
 - [x] Release reporting limited to explicit opt-in crash and compatibility reports
 - [x] Repeatable AppImage and Debian probes across available Wayland, X11/XWayland, and headless Xvfb backends
 
@@ -92,17 +92,22 @@ Codex Linux Community is a repository-first desktop coding agent. Desktop conven
 
 Version 1.0 means the local-first coding workflow is dependable enough to recommend as a primary Codex desktop client, not that every general assistant feature exists.
 
-- Stable persistent threads, background tasks, isolated worktrees, terminals, approvals, and change review
-- Complete local Git workflow plus optional GitHub collaboration from issue through reviewed pull request
-- Visible, manageable Codex extensions: skills, plugins, MCP servers, configuration, policies, and hooks
-- Files, images, screenshots, camera, voice, and long-form artifacts in one accessible workspace
-- Signed, updateable AppImage and Debian releases plus a reviewed classic Snap
-- Verifiable SHA-256 manifests, CycloneDX SBOMs, and signed build provenance
-- Documented compatibility support, migrations, recovery, security boundaries, and release cadence
-- Keyboard-complete, screen-reader-tested GNOME and KDE experiences on X11 and Wayland
+- [ ] On one exact 1.0 release candidate with a real Codex account, resume the last thread after restart; recover a background task and isolated worktree; restart a terminal after a CLI disconnect; approve and deny requests; and review, stage, reject, and commit changes without lost state.
+- [ ] Pass the local Git status, diff, stage, unstage, discard, hunk review, commit, branch, and non-force-push suite. With authenticated GitHub CLI, list issues as context, create a draft pull request, and display its reviews, inline comments, checks, Actions runs, and branch policy.
+- [ ] Inventory and toggle supported installed skills, plugins, and configured MCP servers; show their owning configuration layers and health; and display policies and hooks as read-only metadata without exposing secret configuration values.
+- [ ] Exercise picker, drag/drop, clipboard, screen/window/region capture, camera stills, capability-gated voice, and persistent Markdown artifacts from the keyboard-accessible workspace; unsupported voice must degrade visibly without disabling the rest of Studio.
+- [ ] Publish a fully verified release candidate as a GitHub prerelease, complete a live beta-channel update for installed AppImage and Debian builds, verify the documented GitHub/Sigstore artifact attestations, and bind the tested Snap digest to its Snap Store revision and assertion after classic-confinement approval.
+- [ ] From a public tagged workflow, produce and verify `SHA256SUMS`, the release manifest, CycloneDX 1.6 SBOM, provenance bundle, and SBOM attestation bound to the tag commit and exact AppImage, Debian, and Snap digests.
+- [ ] Publish the tested Codex CLI compatibility target plus migration, backup, recovery, security, stable/beta cadence, and supported-release policy.
+- [ ] Complete all GNOME/KDE × Wayland/X11 package rows for AppImage, Debian, and classic Snap, including keyboard-only navigation and visual modes on every package, plus one assigned Orca reference package per desktop/session for the spoken-output sweep.
+- [ ] Build final `1.0.0` as a new exact artifact set, repeat every prepublication gate against those new digests, publish those unchanged bytes deliberately, then perform the immediate stable-channel update and rollback/recovery smoke check.
+
+Implementation of the underlying features is substantially complete. Promotion depends on evidence for each exact artifact set; historical 0.9 and RC results are regression evidence, not a substitute for the separate final build. The authoritative status and evidence fields are in the [1.0 exact-artifact release checklist](docs/RELEASE-CHECKLIST.md).
 
 Cloud-hosted execution, cross-device thread sync, and broad general-chat features remain post-1.0 unless supported by stable public Codex interfaces. The product stays repository-first.
 
 ## Release gates
 
-Every package must pass protocol tests, a packaged launch test with a minimal desktop `PATH`, an AppImage-to-Debian upgrade and recovery test from real 0.8 state fixtures, login/logout verification, approval-flow fixtures, artifact metadata inspection, checksum and SBOM verification, and the automated accessibility conformance pass. Public release builds must also carry signed provenance and SBOM attestations. A real-account login/logout pass and the applicable GNOME/KDE assistive-technology rows remain manual release checks because CI must never receive maintainer credentials or pretend to evaluate spoken output. Snap Store publication requires approval for classic confinement.
+The automated release sequence repeatably builds all three package types, inspects their metadata and update hashes, verifies checksums and the SBOM, runs protocol/login/approval fixtures, launches the AppImage with a minimal desktop `PATH`, probes AppImage and extracted Debian payloads on the available display backends, and reopens migrated 0.8 state from AppImage with the Debian payload. Snap metadata, payload, and launcher integrity are automated; an installed Snap is a manual gate.
+
+Automation does not claim to test native package installation, real credentials, compositor shortcuts, portal prompts, camera hardware, desktop notification delivery, or spoken output. Every exact candidate package must therefore pass the manual GNOME/KDE × Wayland/X11 matrix. Public release builds must carry verified GitHub/Sigstore provenance and SBOM attestations, and Snap Store publication requires classic-confinement approval. Release assets are write-once per version and tag: changed bytes always require a new identity. See [RELEASING.md](docs/RELEASING.md) for the exact-artifact release process.
