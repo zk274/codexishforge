@@ -172,6 +172,8 @@ test("public release workflow signs the checksum subjects and binds the CycloneD
   assert.match(workflow, /npm run trust:verify/);
   assert.match(workflow, /name: codex-linux-community-\$\{\{ github\.run_id \}\}-\$\{\{ runner\.arch \}\}/);
   assert.match(workflow, /overwrite: true/);
+  assert.match(workflow, /name: codex-linux-community-\$\{\{ github\.run_id \}\}-\$\{\{ runner\.arch \}\}-verified[\s\S]*?compression-level: 0[\s\S]*?retention-days: 1/);
+  assert.match(workflow, /name: codex-linux-community-\$\{\{ github\.run_id \}\}-\$\{\{ runner\.arch \}\}-attested[\s\S]*?retention-days: 14/);
   assert.match(workflow, /persist-credentials: false/);
   assert.match(workflow, /gh attestation verify/);
   assert.match(workflow, /gh release create/);

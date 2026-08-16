@@ -95,7 +95,8 @@ jobs:
             dist/release-manifest.json
             dist/release-sbom.cdx.json
             dist/desktop-compatibility-report.json
-          retention-days: 14
+          compression-level: 0
+          retention-days: 1
 
   attest-release:
     name: Attest verified public tag
