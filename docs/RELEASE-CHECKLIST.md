@@ -63,7 +63,7 @@ These controls must be enabled and evidenced on the final canonical repository b
 
 | Control | Required evidence | Status |
 | --- | --- | --- |
-| Complete-history secret scan | Tool/version, scope covering every reachable ref and commit, date, and bounded zero-unresolved-findings result | Pending |
+| Complete-history secret scan | Tool/version, scope covering every reachable ref and commit, date, and bounded zero-unresolved-findings result | Pass — 2026-08-22: checksum-verified Gitleaks 8.30.1 scanned all 45 reachable commits (`--log-opts=--all`, approximately 1.53 MB) and reported zero leaks; a separate 1.31 GB current-tree scan also reported zero leaks |
 | Dependabot vulnerability alerts and automated security fixes | Both repository controls are enabled | Pass |
 | Private vulnerability reporting | Enabled, policy route visible, and **Report a vulnerability** verified from a non-maintainer account | Blocked — unavailable while the repository is private on the current GitHub plan |
 | Default-branch protection or ruleset | Required CI checks, pull-request review, and force-push/deletion restrictions recorded | Blocked — unavailable while the repository is private on the current GitHub plan |
