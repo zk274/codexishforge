@@ -30,7 +30,7 @@ test("package and release metadata use the canonical CodeXishForge identity", ()
   assert.equal(packageJson.desktopName, "io.github.zk274.codexishforge.desktop");
   assert.equal(packageJson.build.linux.executableName, "codexishforge");
   assert.equal(packageJson.build.linux.artifactName, "CodeXishForge-${version}-${arch}.${ext}");
-  assert.equal(packageJson.author.email, "zk274@users.noreply.github.com");
+  assert.equal(packageJson.author.email, "5151318+zk274@users.noreply.github.com");
   assert.equal(packageJson.homepage, "https://github.com/zk274/codexishforge");
   assert.equal(packageJson.repository.url, "https://github.com/zk274/codexishforge.git");
   assert.equal(RELEASE_MANIFEST_SCHEMA, "io.github.zk274.codexishforge.release-manifest.v1");

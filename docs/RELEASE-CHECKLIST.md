@@ -53,7 +53,7 @@ This template lists one architecture. If arm64 joins the first stable release, d
 | Orca scope | Pass | Run the full spoken-output sweep once per desktop/session on one assigned reference package and digest; every package still completes its keyboard and visual integration cell |
 | Confirm the Snap Store submission owner and classic-confinement justification | Pending | — |
 | Choose and verify a public CodeXishForge security/package contact | Pending | Maintainer email and domain are not yet selected; do not publish an unverified address |
-| Accept the two author email addresses exposed by existing Git history, or perform an intentional pre-public history rewrite | Pending | — |
+| Accept the two author email addresses exposed by existing Git history, or perform an intentional pre-public history rewrite | Pass | All 46 commits were rewritten before publication so author and committer emails use the GitHub ID-based noreply address; names, dates, messages, parent structure, and file trees were preserved |
 
 Do not freeze the candidate until these decisions and all associated repository URLs, update endpoints, trust commands, and documentation are resolved.
 
