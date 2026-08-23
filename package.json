@@ -38,11 +38,11 @@
     "release:verify": "npm run verify:release-context && npm run audit:prod && npm run audit:all && npm run check && npm run dist && npm run verify:artifacts && npm run trust:generate && npm run trust:verify && npm run verify:desktop && npm run smoke:package && npm run smoke:upgrade"
   },
   "devDependencies": {
-    "@cyclonedx/cyclonedx-library": "10.1.0",
-    "@cyclonedx/cyclonedx-npm": "^6.0.0",
-    "electron": "^43.4.0",
+    "@cyclonedx/cyclonedx-library": "10.2.0",
+    "@cyclonedx/cyclonedx-npm": "^6.0.1",
+    "electron": "^43.4.1",
     "electron-builder": "^26.0.12",
-    "esbuild": "^0.25.12"
+    "esbuild": "^0.28.2"
   },
   "build": {
     "appId": "io.github.zk274.codexishforge",
