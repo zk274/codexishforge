@@ -64,13 +64,14 @@ These controls must be enabled and evidenced on the final canonical repository b
 | Control | Required evidence | Status |
 | --- | --- | --- |
 | Complete-history secret scan | Tool/version, scope covering every reachable ref and commit, date, and bounded zero-unresolved-findings result | Pending |
-| Private vulnerability reporting | Enabled, policy route visible, and **Report a vulnerability** verified from a non-maintainer account | Blocked — canonical public repository pending |
-| Default-branch protection or ruleset | Required CI checks, pull-request review, and force-push/deletion restrictions recorded | Blocked — canonical public repository pending |
-| Release-tag protection or ruleset | `v*` creation is restricted and existing release tags cannot be moved or deleted through the normal maintainer path | Blocked — canonical public repository pending |
+| Dependabot vulnerability alerts and automated security fixes | Both repository controls are enabled | Pass |
+| Private vulnerability reporting | Enabled, policy route visible, and **Report a vulnerability** verified from a non-maintainer account | Blocked — unavailable while the repository is private on the current GitHub plan |
+| Default-branch protection or ruleset | Required CI checks, pull-request review, and force-push/deletion restrictions recorded | Blocked — unavailable while the repository is private on the current GitHub plan |
+| Release-tag protection or ruleset | `v*` creation is restricted and existing release tags cannot be moved or deleted through the normal maintainer path | Blocked — unavailable while the repository is private on the current GitHub plan |
 | GitHub release immutability | Immutable releases are enabled so publishing locks the release assets and associated tag | Blocked — canonical public repository pending |
-| Protected `release` environment | Required reviewer is configured and deployment approval is exercised before draft creation | Blocked — canonical public repository pending |
+| Protected `release` environment | Required reviewer is configured and deployment approval is exercised before draft creation | Blocked — protected environments are unavailable while the repository is private on the current GitHub plan |
 | GitHub Actions trust policy | Release actions are pinned to reviewed commit SHAs and permitted Actions/settings are recorded | Pending |
-| Canonical identity and URLs | Repository, package metadata, updater endpoints, trust commands, security route, and documentation use the chosen final identity | Pending — CodeXishForge and `zk274/codexishforge` selected; implementation and remote rename must be verified before the RC |
+| Canonical identity and URLs | Repository, package metadata, updater endpoints, trust commands, security route, and documentation use the chosen final identity | Pass — CodeXishForge implementation and the `zk274/codexishforge` remote rename are verified |
 
 ## Automated gates
 
