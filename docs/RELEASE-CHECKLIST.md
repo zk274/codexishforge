@@ -46,7 +46,7 @@ This template lists one architecture. If arm64 joins the first stable release, d
 | --- | --- | --- |
 | Permanent product and repository identity | Pass | CodeXishForge at `zk274/codexishforge`; all public attestations and updater metadata must use this identity |
 | Candidate version syntax | Pass | Release tooling accepts `1.0.0-rc.N` and maps it to the beta/prerelease updater channel |
-| Make the canonical repository public before the first attested RC run | Pending | Required for public attestations and the published-prerelease updater rehearsal |
+| Make the canonical repository public before the first attested RC run | Pass | `zk274/codexishforge` was made public on 2026-08-22 after the noreply history rewrite, clean secret scans, and successful CI |
 | Artifact-signing policy | Pass | 1.0 requires GitHub/Sigstore provenance and SBOM attestations for every package; native/detached GPG signatures are not claimed |
 | Release architecture | Pending | Recommended first-1.0 scope is verified `amd64`/`x86_64` only; adding arm64 expands every artifact, attestation, updater, package/session, and store-evidence gate |
 | Supported Linux baselines | Pending | Name the distributions, versions, architecture, GNOME/KDE versions, and Wayland/X11 sessions that 1.0 release notes will support; “modern Linux” is not a support definition |
@@ -63,14 +63,14 @@ These controls must be enabled and evidenced on the final canonical repository b
 
 | Control | Required evidence | Status |
 | --- | --- | --- |
-| Complete-history secret scan | Tool/version, scope covering every reachable ref and commit, date, and bounded zero-unresolved-findings result | Pass — 2026-08-22: checksum-verified Gitleaks 8.30.1 scanned all 45 reachable commits (`--log-opts=--all`, approximately 1.53 MB) and reported zero leaks; a separate 1.31 GB current-tree scan also reported zero leaks |
+| Complete-history secret scan | Tool/version, scope covering every reachable ref and commit, date, and bounded zero-unresolved-findings result | Pass — 2026-08-22: after the noreply rewrite, checksum-verified Gitleaks 8.30.1 scanned all 47 commits reachable from public `main` (approximately 1.53 MB) and reported zero leaks; a separate 1.31 GB current-tree scan also reported zero leaks |
 | Dependabot vulnerability alerts and automated security fixes | Both repository controls are enabled | Pass |
-| Private vulnerability reporting | Enabled, policy route visible, and **Report a vulnerability** verified from a non-maintainer account | Blocked — unavailable while the repository is private on the current GitHub plan |
-| Default-branch protection or ruleset | Required CI checks, pull-request review, and force-push/deletion restrictions recorded | Blocked — unavailable while the repository is private on the current GitHub plan |
-| Release-tag protection or ruleset | `v*` creation is restricted and existing release tags cannot be moved or deleted through the normal maintainer path | Blocked — unavailable while the repository is private on the current GitHub plan |
-| GitHub release immutability | Immutable releases are enabled so publishing locks the release assets and associated tag | Blocked — canonical public repository pending |
-| Protected `release` environment | Required reviewer is configured and deployment approval is exercised before draft creation | Blocked — protected environments are unavailable while the repository is private on the current GitHub plan |
-| GitHub Actions trust policy | Release actions are pinned to reviewed commit SHAs and permitted Actions/settings are recorded | Pending |
+| Private vulnerability reporting | Enabled, policy route visible, and **Report a vulnerability** verified from a non-maintainer account | Pending — enabled on 2026-08-22; verify the public reporter flow from a non-maintainer account before the first RC |
+| Default-branch protection or ruleset | Required CI checks, pull-request review, and force-push/deletion restrictions recorded | Pass — `main` requires the up-to-date `Build, syntax, and tests` check, one approving review, last-push approval, conversation resolution, and linear history; force pushes and deletions are disabled |
+| Release-tag protection or ruleset | `v*` creation is restricted and existing release tags cannot be moved or deleted through the normal maintainer path | Pass — active repository ruleset `Protect release tags` covers `refs/tags/v*` and blocks deletion and non-fast-forward updates; repository write access restricts creation |
+| GitHub release immutability | Immutable releases are enabled so publishing locks the release assets and associated tag | Pass — enabled on 2026-08-22 |
+| Protected `release` environment | Required reviewer is configured and deployment approval is exercised before draft creation | Pending — protected `release` environment requires reviewer `zk274` and protected-branch deployment; exercise the approval on the exact candidate before draft creation |
+| GitHub Actions trust policy | Release actions are pinned to reviewed commit SHAs and permitted Actions/settings are recorded | Pass — Actions are limited to GitHub-owned actions, full-SHA pinning is required, and every current workflow action is pinned to a reviewed commit SHA |
 | Canonical identity and URLs | Repository, package metadata, updater endpoints, trust commands, security route, and documentation use the chosen final identity | Pass — CodeXishForge implementation and the `zk274/codexishforge` remote rename are verified |
 
 ## Automated gates
