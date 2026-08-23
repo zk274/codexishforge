@@ -1,6 +1,6 @@
-# Release integrity and provenance
+# CodeXishForge release integrity and provenance
 
-Every release-gate build produces a complete trust set beside the Linux packages:
+Every CodeXishForge release-gate build produces a complete trust set beside the Linux packages:
 
 | File | Purpose |
 | --- | --- |
@@ -23,9 +23,9 @@ sha256sum --check SHA256SUMS
 After the repository is public and the release workflow has produced GitHub/Sigstore attestations, verify that a package came from this repository and its release workflow:
 
 ```bash
-gh attestation verify "Codex-Linux-Community-1.0.0-x86_64.AppImage" \
-  --repo zk274/linuxcodexzk \
-  --signer-workflow zk274/linuxcodexzk/.github/workflows/release-gates.yml
+gh attestation verify "CodeXishForge-1.0.0-x86_64.AppImage" \
+  --repo zk274/codexishforge \
+  --signer-workflow zk274/codexishforge/.github/workflows/release-gates.yml
 ```
 
 Repeat the command for the Debian or Snap file being installed. Add `--predicate-type https://cyclonedx.org/bom` to verify the package's signed CycloneDX SBOM attestation. Verification establishes the source repository, workflow, commit, and artifact digest; it does not claim that the software is free of vulnerabilities.
@@ -38,4 +38,4 @@ The repository may remain private during 1.0 preparation, but the canonical repo
 
 ## Release manifest v1
 
-`release-manifest.json` uses schema identifier `community.codexlinux.release-manifest.v1`. Subject paths are plain filenames, source commits are either a complete lowercase Git SHA or `null` for local builds, and all artifact digests are lowercase SHA-256. `SHA256SUMS` is the authoritative subject list passed to the provenance and SBOM attestation actions.
+`release-manifest.json` uses schema identifier `io.github.zk274.codexishforge.release-manifest.v1`, and its `product.appId` is `io.github.zk274.codexishforge`. The application component in `release-sbom.cdx.json` uses the same durable namespace for its `io.github.zk274.codexishforge:distribution` property. Subject paths are plain filenames, source commits are either a complete lowercase Git SHA or `null` for local builds, and all artifact digests are lowercase SHA-256. `SHA256SUMS` is the authoritative subject list passed to the provenance and SBOM attestation actions.

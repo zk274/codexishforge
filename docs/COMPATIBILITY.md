@@ -1,6 +1,6 @@
-# Compatibility and recovery
+# CodeXishForge compatibility and recovery
 
-Version 0.9 treats the installed Codex CLI as a versioned external interface. Before starting `codex app-server`, the app generates the CLI's JSON schema with `--experimental`, falling back to the stable schema only when necessary. It compares advertised methods with cumulative profiles:
+CodeXishForge version 0.9 treats the installed Codex CLI as a versioned external interface. Before starting `codex app-server`, the app generates the CLI's JSON schema with `--experimental`, falling back to the stable schema only when necessary. It compares advertised methods with cumulative profiles:
 
 | Profile | Required surface | Degradation behavior |
 | --- | --- | --- |

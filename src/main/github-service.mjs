@@ -186,7 +186,7 @@ export class GitHubService {
     if (!cleanTitle) throw new Error("Enter a pull-request title");
     if (typeof base !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$/.test(base)) throw new Error("The pull-request base branch is invalid");
     if (typeof head !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$/.test(head)) throw new Error("The pull-request head branch is invalid");
-    const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "codex-linux-pr-"));
+    const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "codexishforge-pr-"));
     const bodyFile = path.join(temporary, "body.md");
     try {
       fs.writeFileSync(bodyFile, `${cleanBody}\n`, { mode: 0o600 });

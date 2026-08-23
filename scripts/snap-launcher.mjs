@@ -16,7 +16,7 @@ function run(command, args, options = {}) {
 
 export function classicSnapLauncher(
   executableName,
-  { desktopName = "community.codexlinux.desktop" } = {},
+  { desktopName = "io.github.zk274.codexishforge.desktop" } = {},
 ) {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(executableName)) throw new TypeError("Snap executable name is invalid");
   if (!/^[a-z0-9][a-z0-9.-]*\.desktop$/.test(desktopName)) throw new TypeError("Linux desktop name is invalid");
@@ -51,9 +51,9 @@ export async function waitForStableArtifact(filePath, {
   throw new Error(`Snap artifact did not stabilize: ${filePath}`);
 }
 
-export async function patchClassicSnapLauncher(snapPath, executableName) {
+export async function patchClassicSnapLauncher(snapPath, executableName, options = {}) {
   if (!path.isAbsolute(snapPath)) throw new TypeError("Snap path must be absolute");
-  const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "codex-linux-snap-launcher-"));
+  const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "codexishforge-snap-launcher-"));
   const extractedDirectory = path.join(temporaryDirectory, "root");
   const patchedPath = `${snapPath}.patched`;
   try {
@@ -61,7 +61,7 @@ export async function patchClassicSnapLauncher(snapPath, executableName) {
     await run("unsquashfs", ["-no-progress", "-d", extractedDirectory, snapPath]);
     fs.writeFileSync(
       path.join(extractedDirectory, "command.sh"),
-      classicSnapLauncher(executableName),
+      classicSnapLauncher(executableName, options),
       { mode: 0o755 },
     );
     for (const entry of fs.readdirSync(extractedDirectory)) {

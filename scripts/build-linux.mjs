@@ -46,4 +46,4 @@ await Promise.all([waitForStableArtifact(appImagePath), waitForStableArtifact(de
 fs.rmSync(snapPath, { force: true });
 await build(["snap"]);
 await waitForStableArtifact(snapPath);
-await patchClassicSnapLauncher(snapPath, packageJson.name);
+await patchClassicSnapLauncher(snapPath, packageJson.name, { desktopName: packageJson.desktopName });

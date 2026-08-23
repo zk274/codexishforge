@@ -1,9 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import {
+  APP_DESKTOP_NAME,
+  APP_NAME,
+  LEGACY_APP_DESKTOP_NAME,
+  LEGACY_APP_NAME,
+} from "../shared/app-identity.mjs";
 
-export const AUTOSTART_FILENAME = "community.codexlinux.desktop";
-export const AUTOSTART_MARKER = "X-Codex-Linux-Managed=true";
+export const AUTOSTART_FILENAME = APP_DESKTOP_NAME;
+export const AUTOSTART_MARKER = "X-CodeXishForge-Managed=true";
+export const LEGACY_AUTOSTART_FILENAME = LEGACY_APP_DESKTOP_NAME;
+export const LEGACY_AUTOSTART_MARKER = "X-Codex-Linux-Managed=true";
 
 function assertDesktopValue(value, label) {
   if (typeof value !== "string" || !value || value.includes("\0") || /[\r\n]/.test(value)) {
@@ -47,7 +55,7 @@ export function resolveAutostartExecutable({ execPath, env = process.env, pathEx
   return path.normalize(fallback);
 }
 
-export function renderAutostartDesktop({ executable, name = "Codex Linux Community" }) {
+export function renderAutostartDesktop({ executable, name = APP_NAME }) {
   if (!path.isAbsolute(executable)) throw new TypeError("The autostart executable must be an absolute path");
   const safeName = assertDesktopValue(name, "Application name");
   return [
@@ -55,7 +63,7 @@ export function renderAutostartDesktop({ executable, name = "Codex Linux Communi
     "Type=Application",
     "Version=1.0",
     `Name=${safeName}`,
-    "Comment=Start Codex Linux Community in the background",
+    `Comment=Start ${APP_NAME} in the background`,
     `Exec=${quoteDesktopExecArgument(executable)} --autostart`,
     "Terminal=false",
     "Hidden=false",
@@ -81,6 +89,7 @@ export class XdgAutostart {
     this.testMode = testMode;
     this.fs = fsModule;
     this.filePath = path.join(this.directory, AUTOSTART_FILENAME);
+    this.legacyFilePath = path.join(this.directory, LEGACY_AUTOSTART_FILENAME);
   }
 
   expectedContents() {
@@ -116,7 +125,7 @@ export class XdgAutostart {
       return {
         ...base,
         conflict: true,
-        reason: "An autostart entry with this name already exists and is not managed by Codex Linux Community.",
+        reason: `An autostart entry with this name already exists and is not managed by ${APP_NAME}.`,
       };
     }
 
@@ -134,6 +143,8 @@ export class XdgAutostart {
   setEnabled(enabled) {
     if (typeof enabled !== "boolean") throw new TypeError("Launch at login must be enabled or disabled");
     if (!this.available) throw new Error("Launch at login is available only in packaged builds.");
+    const migration = this.migrateLegacy();
+    if (migration.conflict) throw new Error(migration.reason);
     const current = this.status();
     if (current.conflict) throw new Error(current.reason);
 
@@ -154,8 +165,85 @@ export class XdgAutostart {
   }
 
   refresh() {
+    const migration = this.migrateLegacy();
+    if (migration.conflict) return { ...this.status(), conflict: true, reason: migration.reason, legacy: migration };
     const current = this.status();
     if (current.managed && current.enabled && current.stale) return this.setEnabled(true);
-    return current;
+    return migration.migrated || migration.removed
+      ? { ...current, legacy: migration }
+      : current;
+  }
+
+  migrateLegacy() {
+    const base = {
+      found: false,
+      managed: false,
+      migrated: false,
+      removed: false,
+      conflict: false,
+      filePath: this.legacyFilePath,
+      reason: null,
+    };
+    if (!this.available) return base;
+
+    let legacyContents;
+    try {
+      legacyContents = this.fs.readFileSync(this.legacyFilePath, "utf8");
+    } catch (error) {
+      if (error?.code === "ENOENT") return base;
+      return { ...base, found: true, conflict: true, reason: `Unable to inspect the legacy ${LEGACY_APP_NAME} autostart entry: ${error.message}` };
+    }
+
+    const found = { ...base, found: true };
+    const managed = new RegExp(`^${LEGACY_AUTOSTART_MARKER}\\s*$`, "m").test(legacyContents);
+    if (!managed) {
+      return {
+        ...found,
+        reason: `The legacy ${LEGACY_APP_NAME} autostart entry is not app-managed and was left unchanged.`,
+      };
+    }
+
+    let currentContents = null;
+    try {
+      currentContents = this.fs.readFileSync(this.filePath, "utf8");
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        return { ...found, managed: true, conflict: true, reason: `Unable to inspect the ${APP_NAME} autostart entry: ${error.message}` };
+      }
+    }
+
+    if (currentContents != null) {
+      const currentManaged = new RegExp(`^${AUTOSTART_MARKER}\\s*$`, "m").test(currentContents);
+      if (!currentManaged) {
+        return {
+          ...found,
+          managed: true,
+          conflict: true,
+          reason: `Both a managed legacy ${LEGACY_APP_NAME} entry and an unmanaged ${APP_NAME} entry exist. Neither was changed.`,
+        };
+      }
+      try {
+        this.fs.unlinkSync(this.legacyFilePath);
+      } catch (error) {
+        return { ...found, managed: true, conflict: true, reason: `Unable to remove the migrated legacy autostart entry: ${error.message}` };
+      }
+      return { ...found, managed: true, removed: true };
+    }
+
+    this.fs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });
+    const enabled = desktopBoolean(legacyContents, "Hidden") !== true;
+    const contents = enabled
+      ? this.expectedContents()
+      : this.expectedContents().replace("Hidden=false", "Hidden=true");
+    const temporaryPath = path.join(this.directory, `.${AUTOSTART_FILENAME}.${randomUUID()}.tmp`);
+    try {
+      this.fs.writeFileSync(temporaryPath, contents, { encoding: "utf8", mode: 0o600, flag: "wx" });
+      this.fs.renameSync(temporaryPath, this.filePath);
+      this.fs.unlinkSync(this.legacyFilePath);
+    } catch (error) {
+      try { this.fs.unlinkSync(temporaryPath); } catch (cleanupError) { if (cleanupError?.code !== "ENOENT") throw cleanupError; }
+      return { ...found, managed: true, conflict: true, reason: `Unable to migrate the legacy autostart entry safely: ${error.message}` };
+    }
+    return { ...found, managed: true, migrated: true };
   }
 }

@@ -28,7 +28,7 @@ const debPath = path.join(
 assert.ok(fs.statSync(appImagePath).isFile(), `AppImage not found: ${appImagePath}`);
 assert.ok(fs.statSync(debPath).isFile(), `Debian package not found: ${debPath}`);
 
-const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "codex-linux-desktop-compatibility-"));
+const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "codexishforge-desktop-compatibility-"));
 const appImageExtractionRoot = path.join(temporaryDirectory, "appimage");
 fs.mkdirSync(appImageExtractionRoot, { recursive: true });
 const appImageExtraction = spawnSync(appImagePath, ["--appimage-extract"], {
@@ -235,7 +235,7 @@ function verify(report, packageTarget, backend) {
   assert.ok(report.window?.bounds?.width >= 980);
   assert.ok(report.window?.bounds?.height >= 650);
   assert.equal(report.renderer?.readyState, "complete");
-  assert.match(report.renderer?.title || "", /Codex Linux Community/);
+  assert.match(report.renderer?.title || "", /CodeXishForge/);
   assert.equal(report.renderer?.hasComposer, true);
   assert.equal(report.renderer?.hasPrimaryNavigation, true);
   assert.ok(report.renderer?.dialogs > 0);

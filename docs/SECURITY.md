@@ -1,6 +1,6 @@
-# Security review
+# CodeXishForge security review
 
-The 0.9 review covers the desktop boundaries most likely to receive untrusted input.
+The CodeXishForge 0.9 review covers the desktop boundaries most likely to receive untrusted input.
 
 | Boundary | Enforced policy |
 | --- | --- |

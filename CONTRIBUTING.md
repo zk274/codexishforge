@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve the unofficial Linux desktop client. Contributions should preserve its repository-first scope, local-data boundary, explicit approval model, and graceful behavior when an optional Codex capability is unavailable.
+Thanks for helping improve CodeXishForge, a local-first Linux coding-agent workspace. CodeXishForge works with an installed OpenAI Codex CLI and is independent community software. Contributions should preserve its repository-first scope, local-data boundary, explicit approval model, and graceful behavior when an optional Codex capability is unavailable.
 
 ## Before opening an issue
 

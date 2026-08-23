@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { releaseArtifactFile, releaseChannelForVersion } from "./release-trust-lib.mjs";
 import { classicSnapLauncher } from "./snap-launcher.mjs";
@@ -60,14 +61,45 @@ assert.ok(stats.appImage.mode & 0o111, "AppImage is not executable");
 
 const debFields = command("dpkg-deb", [
   "--show",
-  `--showformat=\${Package}\n\${Version}\n\${Architecture}\n`,
+  `--showformat=\${Package}\n\${Version}\n\${Architecture}\n\${Conflicts}\n\${Replaces}\n`,
   artifacts.deb,
 ]).trim().split("\n");
-assert.deepEqual(debFields, ["codex-linux-community", packageJson.version, architecture.deb], "DEB metadata does not match package.json");
+assert.deepEqual(
+  debFields,
+  [packageJson.name, packageJson.version, architecture.deb, "codex-linux-community", "codex-linux-community"],
+  "DEB metadata or package-transition relationships do not match package.json",
+);
+
+const debControlDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "codexishforge-deb-control-"));
+try {
+  command("dpkg-deb", ["--control", artifacts.deb, debControlDirectory]);
+  const postInstall = fs.readFileSync(path.join(debControlDirectory, "postinst"), "utf8");
+  const postRemove = fs.readFileSync(path.join(debControlDirectory, "postrm"), "utf8");
+  assert.match(postInstall, /Alternative: \$legacy_binary/, "DEB post-install must verify the legacy alternative target");
+  assert.match(postInstall, /Name=Codex Linux Community/, "DEB post-install must identify the legacy desktop entry");
+  assert.match(postInstall, /Exec="\/opt\/Codex Linux Community\/codex-linux-community" %U/, "DEB post-install must identify the legacy desktop executable");
+  assert.match(postInstall, /update-alternatives --install '\/usr\/bin\/codexishforge' 'codexishforge' '\/opt\/CodeXishForge\/codexishforge'/);
+  assert.match(postRemove, /update-alternatives --remove 'codexishforge' '\/opt\/CodeXishForge\/codexishforge'/);
+
+  const debPayloadDirectory = path.join(debControlDirectory, "payload");
+  command("dpkg-deb", ["--extract", artifacts.deb, debPayloadDirectory]);
+  const desktopEntry = fs.readFileSync(
+    path.join(debPayloadDirectory, "usr", "share", "applications", packageJson.desktopName),
+    "utf8",
+  );
+  assert.match(desktopEntry, /^Name=CodeXishForge$/m);
+  assert.match(desktopEntry, /^Exec=\/opt\/CodeXishForge\/codexishforge %U$/m);
+  assert.match(desktopEntry, /^Icon=codexishforge$/m);
+  assert.match(desktopEntry, /^StartupWMClass=io\.github\.zk274\.codexishforge$/m);
+  assert.match(desktopEntry, /^MimeType=.*x-scheme-handler\/codexishforge;/m);
+  assert.match(desktopEntry, /^MimeType=.*x-scheme-handler\/codex-linux;/m);
+} finally {
+  fs.rmSync(debControlDirectory, { recursive: true, force: true });
+}
 
 const snapYaml = command("unsquashfs", ["-cat", artifacts.snap, "meta/snap.yaml"]);
 for (const expected of [
-  `name: codex-linux-community`,
+  `name: ${packageJson.name}`,
   `version: ${packageJson.version}`,
   `confinement: classic`,
   `base: core22`,
@@ -76,7 +108,7 @@ for (const expected of [
 const snapLauncher = command("unsquashfs", ["-cat", artifacts.snap, "command.sh"]);
 assert.equal(
   snapLauncher,
-  classicSnapLauncher("codex-linux-community"),
+  classicSnapLauncher(packageJson.name, { desktopName: packageJson.desktopName }),
   "Classic Snap launcher must not depend on missing desktop helper scripts",
 );
 

@@ -181,7 +181,7 @@ export async function inspectCodexProtocol(command, {
   timeoutMs = 15_000,
 } = {}) {
   if (!command) return unknownProtocolCompatibility("The Codex CLI executable was not found.");
-  const directory = fsApi.mkdtempSync(path.join(tempRoot, "codex-linux-protocol-"));
+  const directory = fsApi.mkdtempSync(path.join(tempRoot, "codexishforge-protocol-"));
   let experimentalSchema = true;
   let outputDirectory = path.join(directory, "experimental");
   try {

@@ -1,4 +1,4 @@
-# Linux desktop compatibility
+# CodeXishForge Linux desktop compatibility
 
 Version 0.9 validates packaged Linux behavior at two different levels: automated package/backend probes on every release gate and human desktop/assistive-technology checks before a release candidate is promoted.
 
@@ -38,8 +38,8 @@ All four cases used Electron 43.2.0 and produced a loaded renderer, named modal 
 
 On 2026-08-09, a maintainer manually launched the rebuilt version 0.9.0 AppImage on Ubuntu 26.04 LTS with GNOME Shell 50.1 in a native Wayland session:
 
-- `Ctrl+Shift+Space` was installed as the app-owned GNOME custom binding (`<Primary><Shift>space`) and opened Quick Prompt in the existing application instance through `codex-linux://quick-prompt` while the application was retained in the tray.
-- Ubuntu AppIndicators rendered the generated StatusNotifier `IconPixmap` instead of the three-dot `image-loading-symbolic` fallback. Show Codex, Quick prompt, Quit, and close-to-tray behavior remained functional.
+- `Ctrl+Shift+Space` was installed as the app-owned GNOME custom binding (`<Primary><Shift>space`) and opened Quick Prompt in the existing application instance through the application deep-link handler while the application was retained in the tray. Renamed builds use `codexishforge://quick-prompt`.
+- Ubuntu AppIndicators rendered the generated StatusNotifier `IconPixmap` instead of the three-dot `image-loading-symbolic` fallback. Show CodeXishForge, Quick prompt, Quit, and close-to-tray behavior remained functional.
 
 This is narrow manual AppImage GNOME/Wayland evidence for shortcut delivery and visible tray rendering; it does not complete the remaining AppImage release-candidate checks or any GNOME/X11 or KDE row. The automated desktop probe now verifies visible Quick Prompt behavior with input focus in every case and a real X11 accelerator under Xvfb; native Wayland accelerator delivery remains manual.
 
@@ -47,9 +47,9 @@ This is narrow manual AppImage GNOME/Wayland evidence for shortcut delivery and 
 
 On 2026-07-29, a maintainer completed the Debian install lifecycle for version 0.9.0 (`amd64`) on Ubuntu 26.04 LTS with GNOME Shell 50.1 in a native Wayland session:
 
-- A fresh `dpkg` install registered the package, command alternative, application launcher, icon, and `codex-linux:` URL handler.
+- A fresh `dpkg` install registered the package, command alternative, application launcher, icon, and application URL handler. Renamed builds use `codexishforge:`.
 - Launching from GNOME opened the installed application normally.
-- Opening `codex-linux://open` focused the existing window without creating a second application instance.
+- Opening the application URL focused the existing window without creating a second application instance. The CodeXishForge equivalent is `codexishforge://open`.
 - Removing the package removed its executable, command alternative, launcher, icon, and URL handler while preserving per-user application data.
 - Reinstalling the same package opened normally with the previous user state intact.
 - Closing the main window retained the tray process, and `Ctrl+Shift+Space` opened the quick-prompt window.
@@ -67,10 +67,10 @@ This completes the installed Debian GNOME/Wayland check for version 0.9.0, inclu
 
 On 2026-07-29, a maintainer installed the locally built version 0.9.0 (`amd64`) classic Snap on the same Ubuntu GNOME Wayland host:
 
-- The installed package reported revision `x1` with classic confinement and opened normally through `snap run codex-linux-community`.
+- The installed package reported revision `x1` with classic confinement and opened normally through its packaged Snap command. Renamed builds use `snap run codexishforge`.
 - Existing threads, settings, and selected-project state from the Debian installation remained available.
 - Launching from the GNOME application menu opened the Snap normally.
-- The registered `codex-linux:` handler routed repeated links to one main application process. GNOME displayed its “is ready” activation notification instead of allowing the background application to steal focus.
+- The registered application URL handler routed repeated links to one main application process. Renamed builds use `codexishforge:`. GNOME displayed its “is ready” activation notification instead of allowing the background application to steal focus.
 - Closing the main window retained the tray process, and `Ctrl+Shift+Space` opened the quick-prompt window.
 - File attachment, full-screen capture, region capture, camera preview, and still-image attachment completed successfully.
 - After the classic-Snap launcher selected the host notification daemon, an unfocused completed turn displayed the fixed, privacy-safe completion notification.

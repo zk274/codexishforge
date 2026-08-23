@@ -1,19 +1,19 @@
 {
-  "name": "codex-linux-community",
+  "name": "codexishforge",
   "version": "0.9.0",
   "private": true,
-  "description": "An unofficial Linux desktop client for the OpenAI Codex CLI",
+  "description": "An independent, community-built Linux workspace for use with the OpenAI Codex CLI",
   "author": {
-    "name": "Codex Linux Community contributors",
-    "email": "maintainers@codexlinux.community"
+    "name": "CodeXishForge contributors",
+    "email": "zk274@users.noreply.github.com"
   },
-  "homepage": "https://github.com/zk274/linuxcodexzk",
+  "homepage": "https://github.com/zk274/codexishforge",
   "repository": {
     "type": "git",
-    "url": "https://github.com/zk274/linuxcodexzk.git"
+    "url": "https://github.com/zk274/codexishforge.git"
   },
   "license": "MIT",
-  "desktopName": "community.codexlinux.desktop",
+  "desktopName": "io.github.zk274.codexishforge.desktop",
   "type": "module",
   "main": "src/main/main.mjs",
   "engines": {
@@ -45,21 +45,22 @@
     "esbuild": "^0.25.12"
   },
   "build": {
-    "appId": "community.codexlinux",
-    "productName": "Codex Linux Community",
+    "appId": "io.github.zk274.codexishforge",
+    "productName": "CodeXishForge",
     "asar": true,
     "generateUpdatesFilesForAllChannels": true,
     "publish": {
       "provider": "github",
       "owner": "zk274",
-      "repo": "linuxcodexzk",
+      "repo": "codexishforge",
       "channel": "latest",
       "releaseType": "release"
     },
     "protocols": [
       {
-        "name": "Codex Linux Community link",
+        "name": "CodeXishForge link",
         "schemes": [
+          "codexishforge",
           "codex-linux"
         ]
       }
@@ -77,15 +78,26 @@
       ],
       "category": "Development",
       "icon": "assets/icon.svg",
+      "executableName": "codexishforge",
       "syncDesktopName": true,
-      "artifactName": "Codex-Linux-Community-${version}-${arch}.${ext}"
+      "artifactName": "CodeXishForge-${version}-${arch}.${ext}"
+    },
+    "deb": {
+      "afterInstall": "scripts/packaging/debian-after-install.tpl",
+      "afterRemove": "scripts/packaging/debian-after-remove.tpl",
+      "fpm": [
+        "--conflicts",
+        "codex-linux-community",
+        "--replaces",
+        "codex-linux-community"
+      ]
     },
     "snapcraft": {
       "base": "core22",
       "core22": {
         "confinement": "classic",
         "grade": "stable",
-        "summary": "A Linux desktop client for the OpenAI Codex CLI"
+        "summary": "An independent community-built Linux workspace for the OpenAI Codex CLI"
       }
     }
   },

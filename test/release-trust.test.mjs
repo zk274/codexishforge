@@ -25,7 +25,7 @@ const packageJson = {
 };
 
 function fixture(t) {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "codex-linux-release-trust-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "codexishforge-release-trust-"));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   for (const { file } of releaseLayout(packageJson, "x64").artifacts) {
     fs.writeFileSync(path.join(directory, file), `fixture:${file}\n`);
@@ -170,10 +170,10 @@ test("public release workflow signs the checksum subjects and binds the CycloneD
   assert.match(workflow, /contents: write/);
   assert.match(workflow, /uses: actions\/download-artifact@[a-f0-9]{40} # v8/);
   assert.match(workflow, /npm run trust:verify/);
-  assert.match(workflow, /name: codex-linux-community-\$\{\{ github\.run_id \}\}-\$\{\{ runner\.arch \}\}/);
+  assert.match(workflow, /name: codexishforge-\$\{\{ github\.run_id \}\}-\$\{\{ runner\.arch \}\}/);
   assert.match(workflow, /overwrite: true/);
-  assert.match(workflow, /name: codex-linux-community-\$\{\{ github\.run_id \}\}-\$\{\{ runner\.arch \}\}-verified[\s\S]*?compression-level: 0[\s\S]*?retention-days: 1/);
-  assert.match(workflow, /name: codex-linux-community-\$\{\{ github\.run_id \}\}-\$\{\{ runner\.arch \}\}-attested[\s\S]*?retention-days: 14/);
+  assert.match(workflow, /name: codexishforge-\$\{\{ github\.run_id \}\}-\$\{\{ runner\.arch \}\}-verified[\s\S]*?compression-level: 0[\s\S]*?retention-days: 1/);
+  assert.match(workflow, /name: codexishforge-\$\{\{ github\.run_id \}\}-\$\{\{ runner\.arch \}\}-attested[\s\S]*?retention-days: 14/);
   assert.match(workflow, /persist-credentials: false/);
   assert.match(workflow, /gh attestation verify/);
   assert.match(workflow, /gh release create/);

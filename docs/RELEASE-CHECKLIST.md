@@ -1,4 +1,4 @@
-# 1.0 exact-artifact release checklist
+# CodeXishForge 1.0 exact-artifact release checklist
 
 This checklist evaluates one exact set of Linux artifacts. Use a fresh copy for each published release candidate and again for the separate final `1.0.0` build. Record evidence against artifact digests, not only a version label.
 
@@ -44,7 +44,7 @@ This template lists one architecture. If arm64 joins the first stable release, d
 
 | Decision | Status | Resolution |
 | --- | --- | --- |
-| Keep `linuxcodexzk` or rename the repository before public attestations and update publication | Pending | — |
+| Permanent product and repository identity | Pass | CodeXishForge at `zk274/codexishforge`; all public attestations and updater metadata must use this identity |
 | Candidate version syntax | Pass | Release tooling accepts `1.0.0-rc.N` and maps it to the beta/prerelease updater channel |
 | Make the canonical repository public before the first attested RC run | Pending | Required for public attestations and the published-prerelease updater rehearsal |
 | Artifact-signing policy | Pass | 1.0 requires GitHub/Sigstore provenance and SBOM attestations for every package; native/detached GPG signatures are not claimed |
@@ -52,7 +52,7 @@ This template lists one architecture. If arm64 joins the first stable release, d
 | Supported Linux baselines | Pending | Name the distributions, versions, architecture, GNOME/KDE versions, and Wayland/X11 sessions that 1.0 release notes will support; “modern Linux” is not a support definition |
 | Orca scope | Pass | Run the full spoken-output sweep once per desktop/session on one assigned reference package and digest; every package still completes its keyboard and visual integration cell |
 | Confirm the Snap Store submission owner and classic-confinement justification | Pending | — |
-| Confirm that `maintainers@codexlinux.community` is controlled and appropriate for public package metadata | Pending | — |
+| Choose and verify a public CodeXishForge security/package contact | Pending | Maintainer email and domain are not yet selected; do not publish an unverified address |
 | Accept the two author email addresses exposed by existing Git history, or perform an intentional pre-public history rewrite | Pending | — |
 
 Do not freeze the candidate until these decisions and all associated repository URLs, update endpoints, trust commands, and documentation are resolved.
@@ -70,7 +70,7 @@ These controls must be enabled and evidenced on the final canonical repository b
 | GitHub release immutability | Immutable releases are enabled so publishing locks the release assets and associated tag | Blocked — canonical public repository pending |
 | Protected `release` environment | Required reviewer is configured and deployment approval is exercised before draft creation | Blocked — canonical public repository pending |
 | GitHub Actions trust policy | Release actions are pinned to reviewed commit SHAs and permitted Actions/settings are recorded | Pending |
-| Canonical identity and URLs | Repository, package metadata, updater endpoints, trust commands, security route, and documentation use the chosen final identity | Blocked — product/repository identity pending |
+| Canonical identity and URLs | Repository, package metadata, updater endpoints, trust commands, security route, and documentation use the chosen final identity | Pending — CodeXishForge and `zk274/codexishforge` selected; implementation and remote rename must be verified before the RC |
 
 ## Automated gates
 
@@ -107,7 +107,7 @@ Every cell uses a clean application profile, an exact candidate package digest, 
 For every cell, verify:
 
 1. Clean launch or installation, expected package identity, application menu/launcher where applicable, and one running instance.
-2. `codex-linux:` deep-link routing and an existing-window activation.
+2. `codexishforge:` deep-link routing and an existing-window activation.
 3. Tray icon, tray actions, close-to-tray, quit, and native global Quick Prompt shortcut delivery.
 4. Completion and approval desktop notifications while unfocused; denial leaves the requested outside-project file uncreated.
 5. File attachment, full-screen capture, screenshot picker, region capture, camera preview, and still-image attachment through actual desktop permission/portal prompts.

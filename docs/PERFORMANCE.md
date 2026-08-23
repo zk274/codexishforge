@@ -1,4 +1,4 @@
-# Performance budgets
+# CodeXishForge performance budgets
 
 Version 0.9 records bounded, local timing samples and exposes the latest and p95 values in diagnostics. Samples are never sent unless a future reporting schema explicitly adds them; the current opt-in reporting schema does not.
 

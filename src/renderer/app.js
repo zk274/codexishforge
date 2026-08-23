@@ -1796,7 +1796,7 @@ function setCameraPreviewState(message, { error = false, live = false } = {}) {
 }
 
 function cameraErrorMessage(error) {
-  if (error?.name === "NotAllowedError" || error?.name === "SecurityError") return "Camera access was denied. Allow camera access for Codex Linux, then try again.";
+  if (error?.name === "NotAllowedError" || error?.name === "SecurityError") return "Camera access was denied. Allow camera access for CodeXishForge, then try again.";
   if (error?.name === "NotFoundError" || error?.name === "DevicesNotFoundError") return "No camera was found on this computer.";
   if (error?.name === "NotReadableError" || error?.name === "TrackStartError") return "The camera is busy or unavailable. Close other camera apps and try again.";
   if (error?.name === "OverconstrainedError") return "The selected camera is no longer available.";
@@ -2201,7 +2201,7 @@ async function activateNotificationTarget(target = {}) {
 
 async function activateDeepLink(action = {}) {
   if (action.kind === "error") {
-    toast(action.message || "That Codex Linux link could not be opened.");
+    toast(action.message || "That CodeXishForge link could not be opened.");
     return;
   }
   if (action.kind === "open") {

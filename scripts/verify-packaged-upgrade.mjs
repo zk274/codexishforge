@@ -31,7 +31,7 @@ assert.ok(fs.statSync(debPath).isFile(), `Debian package not found: ${debPath}`)
 const xvfbRun = ["/usr/bin/xvfb-run", "/usr/local/bin/xvfb-run"].find((candidate) => fs.existsSync(candidate));
 assert.ok(xvfbRun || process.env.DISPLAY, "xvfb-run or an existing X display is required for the packaged upgrade test");
 
-const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "codex-linux-package-upgrade-"));
+const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "codexishforge-package-upgrade-"));
 const extractedDeb = path.join(temporaryDirectory, "deb");
 const extraction = spawnSync("dpkg-deb", ["--extract", debPath, extractedDeb], {
   cwd: projectRoot,
@@ -56,14 +56,15 @@ function seedHome(label) {
   const root = path.join(temporaryDirectory, label);
   const home = path.join(root, "home");
   const runtime = path.join(root, "runtime");
+  const legacyUserData = path.join(home, ".config", "codex-linux-community");
   const userData = path.join(home, ".config", packageJson.name);
-  fs.mkdirSync(userData, { recursive: true });
+  fs.mkdirSync(legacyUserData, { recursive: true });
   fs.mkdirSync(runtime, { recursive: true, mode: 0o700 });
-  for (const name of stateNames) fs.copyFileSync(path.join(fixtureDirectory, name), path.join(userData, name));
+  for (const name of stateNames) fs.copyFileSync(path.join(fixtureDirectory, name), path.join(legacyUserData, name));
   const authPath = path.join(home, ".codex", "auth.json");
   fs.mkdirSync(path.dirname(authPath), { recursive: true });
   fs.writeFileSync(authPath, authFixture, { mode: 0o600 });
-  return { root, home, runtime, userData, authPath };
+  return { root, home, runtime, legacyUserData, userData, authPath };
 }
 
 function launch(executable, environment, label, { appImage = false } = {}) {
@@ -176,8 +177,10 @@ try {
   assert.equal(debReinstall.report.creation.storage.status, "current");
 
   const recovery = seedHome("recovery");
+  const recoveryMigration = await launch(appImagePath, recovery, "appimage-recovery-migration", { appImage: true });
+  assertPreserved(recoveryMigration.report, recovery, "appimage");
   const recoverySettings = path.join(recovery.userData, "settings.json");
-  fs.copyFileSync(recoverySettings, `${recoverySettings}.backup`);
+  fs.copyFileSync(path.join(fixtureDirectory, "settings.json"), `${recoverySettings}.backup`);
   fs.writeFileSync(recoverySettings, "{broken");
   const recovered = await launch(appImagePath, recovery, "appimage-recovery", { appImage: true });
   assertPreserved(recovered.report, recovery, "appimage");
@@ -185,11 +188,16 @@ try {
   assert.equal(json(`${recoverySettings}.backup`).lastThreadId, "thread-v08-preserved");
 
   const future = seedHome("future");
+  const futureMigration = await launch(appImagePath, future, "appimage-future-migration", { appImage: true });
+  assertPreserved(futureMigration.report, future, "appimage");
   const futureContents = new Map();
   for (const name of stateNames) {
     const contents = `${JSON.stringify({ version: 999, marker: `${name}-future` }, null, 2)}\n`;
     futureContents.set(name, contents);
-    fs.writeFileSync(path.join(future.userData, name), contents);
+    const filePath = path.join(future.userData, name);
+    fs.rmSync(`${filePath}.backup`, { force: true });
+    fs.rmSync(`${filePath}.migration-backup`, { force: true });
+    fs.writeFileSync(filePath, contents);
   }
   const protectedFuture = await launch(appImagePath, future, "appimage-future", { appImage: true });
   assert.equal(protectedFuture.report.settings.storage.status, "future");

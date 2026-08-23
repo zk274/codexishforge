@@ -1,8 +1,12 @@
-# Codex Linux Community
+# CodeXishForge
 
-An unofficial Linux desktop client powered by the installed OpenAI Codex CLI. It provides a focused, native-feeling workspace for persistent coding threads while reusing your existing Codex login, configuration, skills, plugins, MCP servers, and local history.
+CodeXishForge (**CXF**) is a local-first Linux coding-agent workspace.
 
-> This project is independent community software. It is not an official OpenAI product, and it does not contain or redistribute the proprietary macOS or Windows Codex applications.
+It works with your installed OpenAI Codex CLI and is built independently by the community.
+
+CodeXishForge provides a focused, native-feeling workspace for persistent coding threads while reusing your existing Codex login, configuration, skills, plugins, MCP servers, and local history.
+
+> CodeXishForge is not an OpenAI product and is not affiliated with, endorsed by, sponsored by, or maintained by OpenAI. It is not an official Codex port or an OpenAI-maintained “community edition.” It does not contain or redistribute the proprietary macOS or Windows Codex applications.
 
 ## What works
 
@@ -31,7 +35,7 @@ An unofficial Linux desktop client powered by the installed OpenAI Codex CLI. It
 - Configure or disable the global quick-prompt shortcut, with conflict and Wayland compositor guidance
 - Show, quick-prompt, or quit from the Linux system tray, with optional close-to-tray behavior
 - Launch at login through a managed XDG autostart entry, starting quietly in the tray when available
-- Open `codex-linux://` links in one running app instance to focus Codex, resume a thread, or confirm and open a local project
+- Open `codexishforge://` links in one running app instance to focus CodeXishForge, resume a thread, or confirm and open a local project
 - Check stable or beta release channels, explicitly download verified updates, and restart to install supported Linux packages
 - Receive configurable, privacy-safe notifications for completed turns, approval requests, questions, and background terminal exits
 - Use the complete interface by keyboard, with visible focus, contained dialog focus, reduced motion, text scaling, high contrast, system accessibility preference support, and an optional screen-reader announcement mode
@@ -75,7 +79,7 @@ The development launcher removes `ELECTRON_RUN_AS_NODE` because Codex-hosted she
 
 ## Keyboard and accessibility
 
-Open account settings with **Ctrl+,** to choose 100–150% text size, reduced motion, high contrast, or screen-reader mode. Screen-reader mode announces completed turns and requests for decisions without reading every streamed token. Codex also follows the desktop's reduced-motion, increased-contrast, and forced-color preferences.
+Open account settings with **Ctrl+,** to choose 100–150% text size, reduced motion, high contrast, or screen-reader mode. Screen-reader mode announces completed turns and requests for decisions without reading every streamed token. CodeXishForge also follows the desktop's reduced-motion, increased-contrast, and forced-color preferences.
 
 Use **Ctrl+N** for a new thread, **Ctrl+K** or **/** to search threads, **Ctrl+J** for the terminal, **Ctrl+Shift+B** for background tasks, **Ctrl+Shift+R** for the Review Center, **Ctrl+Shift+F** for workspace search, **Alt+Left** to return home, and **F6** to cycle through the primary work areas. Arrow keys navigate thread lists and tabs. In region capture, arrow keys move the selection and **Shift+Arrow** resizes it. Dialogs contain keyboard focus and close with **Escape**.
 
@@ -115,7 +119,7 @@ The Policy & share tab inventories metadata for `AGENTS.md`, project Codex confi
 
 ## Extension Center
 
-Open the application menu beside **Codex Linux**, then select **Extensions**. The Extension Center lists skills for the current project, installed plugins, active MCP servers, health issues, and effective Codex configuration layers.
+Open the application menu beside **CodeXishForge**, then select **Extensions**. The Extension Center lists skills for the current project, installed plugins, active MCP servers, health issues, and effective Codex configuration layers.
 
 Skill enablement uses the supported Codex skill API. Plugin and MCP toggles write only the owning user or trusted-project configuration layer through Codex's atomic configuration API; system and managed layers remain read-only. Plugin inventory is labeled **Preview** and automatically disappears on CLI versions that do not expose it.
 
@@ -123,12 +127,12 @@ Raw `config.toml` values, MCP commands, URLs, environment variables, headers, an
 
 ## Deep links
 
-Installed packages register the `codex-linux` URL scheme. Supported links are intentionally limited:
+Installed packages register the `codexishforge` URL scheme. Supported links are intentionally limited:
 
 ```text
-codex-linux://open
-codex-linux://thread/THREAD_ID
-codex-linux://project?path=%2Fabsolute%2Fproject
+codexishforge://open
+codexishforge://thread/THREAD_ID
+codexishforge://project?path=%2Fabsolute%2Fproject
 ```
 
 Project links show the resolved local directory and require confirmation. Links cannot contain prompts, commands, credentials, or relative paths.
@@ -154,10 +158,10 @@ Public tagged release builds receive signed GitHub/Sigstore provenance and SBOM 
 
 The packaged smoke tests use `xvfb-run` or an existing X display. They launch the AppImage with a clean home directory and minimal desktop `PATH`, then migrate real 0.8 settings, tasks, inbox, templates, and artifacts before reopening the same profile with the Debian package. Corrupt-primary recovery, newer-state protection, and preservation of CLI-owned authentication are also verified. GitHub Actions runs ordinary checks for every pull request and the full release gates for version tags or a manual dispatch.
 
-Classic confinement is intentional: Codex must open user-selected repositories and launch the host CLI. Install a local Snap build with:
+Classic confinement is intentional: CodeXishForge must open user-selected repositories and launch the host CLI. Install a local Snap build with:
 
 ```bash
-sudo snap install --classic --dangerous "dist/Codex-Linux-Community-0.9.0-amd64.snap"
+sudo snap install --classic --dangerous "dist/CodeXishForge-0.9.0-amd64.snap"
 ```
 
 Publishing a classic snap in the Snap Store requires a confinement review.
@@ -194,4 +198,4 @@ MIT. “OpenAI” and “Codex” are trademarks of OpenAI; their use here ident
 
 ## Support
 
-Codex Linux Community remains free and open source. See the [support policy](docs/SUPPORT.md) before filing a non-sensitive issue. If the app is useful to you, optional maintenance sponsorship is available through [GitHub Sponsors](https://github.com/sponsors/zk274).
+CodeXishForge remains free and open source. See the [support policy](docs/SUPPORT.md) before filing a non-sensitive issue. If the app is useful to you, optional maintenance sponsorship is available through [GitHub Sponsors](https://github.com/sponsors/zk274).

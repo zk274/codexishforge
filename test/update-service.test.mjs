@@ -99,7 +99,7 @@ test("validates bounded update versions, URLs, sizes, and hashes", () => {
   }), { version: "0.9.0", files: 1 });
   assert.deepEqual(validateUpdateMetadata({
     version: "0.10.0-beta.1",
-    files: [{ url: "https://github.com/zk274/linuxcodexzk/releases/download/v0.10.0-beta.1/app.AppImage", sha512: updateHash, size: 1234 }],
+    files: [{ url: "https://github.com/zk274/codexishforge/releases/download/v0.10.0-beta.1/app.AppImage", sha512: updateHash, size: 1234 }],
   }, { channel: "beta" }), { version: "0.10.0-beta.1", files: 1 });
 
   assert.throws(() => validateUpdateMetadata({ version: "0.9" }), /invalid version/);

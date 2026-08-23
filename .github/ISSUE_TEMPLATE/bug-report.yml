@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible, non-sensitive defect
+description: Report a reproducible, non-sensitive CodeXishForge defect
 title: "bug: "
 labels:
   - bug
@@ -10,7 +10,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: App version and package
+      label: CodeXishForge version and package
       description: For example, 1.0.0-rc.1 Debian amd64.
     validations:
       required: true

@@ -1,3 +1,5 @@
+import { APP_NAME } from "../shared/app-identity.mjs";
+
 export const NOTIFICATION_DEDUPE_WINDOW_MS = 60_000;
 
 const preferenceForKind = Object.freeze({
@@ -18,7 +20,7 @@ export function notificationContent(kind, details = {}) {
     const needsInput = details.requestType === "input";
     return {
       title: needsInput ? "Codex needs your input" : "Codex needs your approval",
-      body: needsInput ? "Open Codex to answer and continue the turn." : "Open Codex to review the pending request.",
+      body: needsInput ? `Open ${APP_NAME} to answer and continue the turn.` : `Open ${APP_NAME} to review the pending request.`,
       urgency: "normal",
     };
   }

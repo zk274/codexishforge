@@ -1,4 +1,6 @@
-export const LINUX_DESKTOP_NAME = "community.codexlinux.desktop";
+import { APP_DESKTOP_NAME } from "../shared/app-identity.mjs";
+
+export const LINUX_DESKTOP_NAME = APP_DESKTOP_NAME;
 
 export function resolveLinuxDesktopName({
   platform = process.platform,

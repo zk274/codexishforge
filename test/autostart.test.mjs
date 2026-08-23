@@ -6,6 +6,8 @@ import test from "node:test";
 import {
   AUTOSTART_FILENAME,
   AUTOSTART_MARKER,
+  LEGACY_AUTOSTART_FILENAME,
+  LEGACY_AUTOSTART_MARKER,
   XdgAutostart,
   quoteDesktopExecArgument,
   renderAutostartDesktop,
@@ -14,10 +16,10 @@ import {
 } from "../src/main/autostart.mjs";
 
 function temporaryAutostart(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-autostart-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codexishforge-autostart-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const directory = path.join(root, "config", "autostart");
-  const executable = path.join(root, "Codex Linux Community.AppImage");
+  const executable = path.join(root, "CodeXishForge.AppImage");
   fs.writeFileSync(executable, "");
   return { root, directory, executable };
 }
@@ -41,6 +43,8 @@ test("renders a managed background autostart desktop entry", () => {
   assert.match(contents, /^Exec="\/opt\/Codex Linux\/codex" --autostart$/m);
   assert.match(contents, new RegExp(`^${AUTOSTART_MARKER}$`, "m"));
   assert.match(contents, /^Terminal=false$/m);
+  assert.match(contents, /^Name=CodeXishForge$/m);
+  assert.match(contents, /^Comment=Start CodeXishForge in the background$/m);
 });
 
 test("enables, inspects, refreshes, and disables a managed entry", (t) => {
@@ -96,6 +100,56 @@ test("unavailable development manager refuses to mutate the filesystem", (t) => 
   assert.equal(manager.status().available, false);
   assert.throws(() => manager.setEnabled(true), /packaged builds/);
   assert.equal(fs.existsSync(manager.filePath), false);
+});
+
+test("migrates only an app-managed legacy autostart entry and preserves its disabled state", (t) => {
+  const fixture = temporaryAutostart(t);
+  fs.mkdirSync(fixture.directory, { recursive: true });
+  const legacyPath = path.join(fixture.directory, LEGACY_AUTOSTART_FILENAME);
+  fs.writeFileSync(legacyPath, [
+    "[Desktop Entry]",
+    "Type=Application",
+    "Hidden=true",
+    LEGACY_AUTOSTART_MARKER,
+    "",
+  ].join("\n"));
+  const manager = new XdgAutostart({ directory: fixture.directory, executable: fixture.executable });
+
+  const status = manager.refresh();
+  assert.equal(status.managed, true);
+  assert.equal(status.enabled, false);
+  assert.equal(status.legacy.migrated, true);
+  assert.equal(fs.existsSync(legacyPath), false);
+  assert.match(fs.readFileSync(manager.filePath, "utf8"), new RegExp(`^${AUTOSTART_MARKER}$`, "m"));
+  assert.match(fs.readFileSync(manager.filePath, "utf8"), /^Hidden=true$/m);
+});
+
+test("leaves an unmanaged legacy autostart entry untouched", (t) => {
+  const fixture = temporaryAutostart(t);
+  fs.mkdirSync(fixture.directory, { recursive: true });
+  const legacyPath = path.join(fixture.directory, LEGACY_AUTOSTART_FILENAME);
+  const contents = "[Desktop Entry]\nType=Application\nExec=/usr/bin/example\n";
+  fs.writeFileSync(legacyPath, contents);
+  const manager = new XdgAutostart({ directory: fixture.directory, executable: fixture.executable });
+
+  const status = manager.refresh();
+  assert.equal(status.enabled, false);
+  assert.equal(fs.existsSync(manager.filePath), false);
+  assert.equal(fs.readFileSync(legacyPath, "utf8"), contents);
+});
+
+test("refuses an ambiguous managed-legacy and unmanaged-current autostart conflict", (t) => {
+  const fixture = temporaryAutostart(t);
+  fs.mkdirSync(fixture.directory, { recursive: true });
+  fs.writeFileSync(path.join(fixture.directory, LEGACY_AUTOSTART_FILENAME), `[Desktop Entry]\n${LEGACY_AUTOSTART_MARKER}\n`);
+  fs.writeFileSync(path.join(fixture.directory, AUTOSTART_FILENAME), "[Desktop Entry]\nExec=/usr/bin/example\n");
+  const manager = new XdgAutostart({ directory: fixture.directory, executable: fixture.executable });
+
+  const status = manager.refresh();
+  assert.equal(status.conflict, true);
+  assert.match(status.reason, /Neither was changed/);
+  assert.throws(() => manager.setEnabled(true), /Neither was changed/);
+  assert.equal(fs.existsSync(manager.legacyFilePath), true);
 });
 
 test("prefers stable AppImage and Snap launchers before the runtime executable", () => {

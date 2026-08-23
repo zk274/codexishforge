@@ -1,6 +1,6 @@
-# Support policy
+# CodeXishForge support policy
 
-Codex Linux Community is maintained without a service-level agreement. Release support is intentionally narrow enough that a small community project can honor it.
+CodeXishForge is maintained without a service-level agreement. Release support is intentionally narrow enough that a small community project can honor it.
 
 ## Supported releases
 
@@ -17,7 +17,7 @@ There is no fixed calendar cadence. Stable releases are published when the [rele
 
 ## Codex CLI compatibility
 
-The desktop app uses the installed Codex CLI as a versioned external interface. Each stable release records the tested CLI version and highest complete compatibility profile in [COMPATIBILITY.md](COMPATIBILITY.md) and in its release evidence.
+CodeXishForge uses the installed OpenAI Codex CLI as a versioned external interface. Each stable release records the tested CLI version and highest complete compatibility profile in [COMPATIBILITY.md](COMPATIBILITY.md) and in its release evidence. CodeXishForge is independent community software; compatibility does not imply affiliation, endorsement, or sponsorship by OpenAI.
 
 The exact CLI version recorded for a stable release is its tested target; a later upstream “current” CLI does not become supported automatically. Older or newer CLI versions may continue to work when their advertised schema satisfies a known profile, but optional features can be disabled and an incompatible core protocol is blocked with upgrade guidance. The app does not replace, patch, or own CLI authentication data.
 

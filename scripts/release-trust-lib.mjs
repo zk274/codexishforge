@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-export const RELEASE_MANIFEST_SCHEMA = "community.codexlinux.release-manifest.v1";
+export const RELEASE_MANIFEST_SCHEMA = "io.github.zk274.codexishforge.release-manifest.v1";
 export const RELEASE_MANIFEST_FILE = "release-manifest.json";
 export const RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 export const RELEASE_SBOM_FILE = "release-sbom.cdx.json";

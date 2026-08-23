@@ -59,6 +59,13 @@ import {
   validateCameraFrameDataUrl,
   validateCameraFrameSize,
 } from "../shared/camera-capture.mjs";
+import {
+  APP_NAME,
+  APP_SLUG,
+  CODEX_BACKGROUND_SERVICE_NAME,
+  CODEX_THREAD_SOURCE,
+} from "../shared/app-identity.mjs";
+import { migrateLegacyUserData } from "./user-data-migration.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { autoUpdater } = electronUpdater;
@@ -73,8 +80,23 @@ const desktopCompatibilityTestMode = process.argv.some((argument) => argument.st
 const shortcutRegistrationDisabledForTest = desktopCompatibilityTestMode && process.argv.includes("--test-disable-global-shortcut");
 const linuxDesktopName = resolveLinuxDesktopName();
 if (linuxDesktopName) app.setDesktopName(linuxDesktopName);
+app.setName(APP_NAME);
+let userDataMigration = null;
+let startupMigrationError = null;
+try {
+  userDataMigration = migrateLegacyUserData({ appDataDirectory: app.getPath("appData") });
+  app.setPath("userData", userDataMigration.userDataPath);
+} catch (error) {
+  startupMigrationError = error;
+  console.error("CodeXishForge user-data migration stopped startup:", error.message);
+  dialog.showErrorBox(
+    `${APP_NAME} could not start safely`,
+    `${error.message}\n\nNo application data was merged or deleted.`,
+  );
+  app.exit(1);
+}
 const initialDeepLinkArgument = extractDeepLinkArgument(process.argv);
-const singleInstanceLockAcquired = app.requestSingleInstanceLock({ deepLink: initialDeepLinkArgument });
+const singleInstanceLockAcquired = !startupMigrationError && app.requestSingleInstanceLock({ deepLink: initialDeepLinkArgument });
 if (!singleInstanceLockAcquired) app.quit();
 let client = null;
 let discovery = null;
@@ -574,9 +596,9 @@ async function startBackgroundTask(task) {
     const response = await activeClient.request("thread/start", secureThreadExecutionParams({
       cwd,
       model: task.model || null,
-      serviceName: "codex_linux_community_background",
+      serviceName: CODEX_BACKGROUND_SERVICE_NAME,
       sessionStartSource: "startup",
-      threadSource: "codex-linux-community",
+      threadSource: CODEX_THREAD_SOURCE,
     }));
     const threadId = response.thread.id;
     taskStore.running(task.id, { threadId });
@@ -971,7 +993,7 @@ function registerIpc() {
       cwd: params.cwd,
       model: params.model || null,
       sessionStartSource: "startup",
-      threadSource: "codex-linux-community",
+      threadSource: CODEX_THREAD_SOURCE,
     }));
     rememberThread({ id: response.thread.id, cwd: response.thread.cwd, title: response.thread.name || response.thread.preview || "New thread" });
     return response;
@@ -1415,7 +1437,7 @@ function registerIpc() {
     updateService.install();
     return true;
   });
-  handleIpc("updates:openReleases", () => shell.openExternal(validateExternalUrl("https://github.com/zk274/linuxcodexzk/releases").toString()));
+  handleIpc("updates:openReleases", () => shell.openExternal(validateExternalUrl("https://github.com/zk274/codexishforge/releases").toString()));
   handleIpc("project:openSponsor", () => shell.openExternal(validateExternalUrl(PROJECT_SPONSOR_URL).toString()));
 
   handleIpc("git:status", async (_event, cwd) => {
@@ -1600,7 +1622,7 @@ function registerIpc() {
   handleIpc("diagnostics:export", async () => {
     const result = await dialog.showSaveDialog(mainWindow, {
       title: "Export diagnostics",
-      defaultPath: path.join(app.getPath("documents"), `codex-linux-diagnostics-${new Date().toISOString().replace(/[:.]/g, "-")}.json`),
+      defaultPath: path.join(app.getPath("documents"), `${APP_SLUG}-diagnostics-${new Date().toISOString().replace(/[:.]/g, "-")}.json`),
       filters: [{ name: "JSON", extensions: ["json"] }],
     });
     if (result.canceled) return null;
@@ -1821,12 +1843,12 @@ function createWindow({ show = true } = {}) {
           github: {
             available: true,
             cliVersion: "gh 2.80.0",
-            repository: { name: "zk274/linuxcodexzk", url: "https://github.com/zk274/linuxcodexzk", defaultBranch: "main", visibility: "private", viewerPermission: "admin" },
-            issues: [{ number: 14, title: "Review keyboard navigation", state: "open", updatedAt: new Date().toISOString(), url: "https://github.com/zk274/linuxcodexzk/issues/14", labels: ["accessibility"], assignees: [] }],
-            pulls: [{ number: 12, title: "Add Task Center recovery", state: "open", draft: false, head: "tasks", base: "main", reviewDecision: "approved", checks: [{ name: "CI", status: "completed", conclusion: "SUCCESS" }], updatedAt: new Date().toISOString(), url: "https://github.com/zk274/linuxcodexzk/pull/12" }],
-            runs: [{ id: 123, name: "Build, syntax, and tests", workflow: "CI", status: "completed", conclusion: "success", branch: "main", event: "push", createdAt: new Date().toISOString(), url: "https://github.com/zk274/linuxcodexzk/actions/runs/123" }],
+            repository: { name: "zk274/codexishforge", url: "https://github.com/zk274/codexishforge", defaultBranch: "main", visibility: "private", viewerPermission: "admin" },
+            issues: [{ number: 14, title: "Review keyboard navigation", state: "open", updatedAt: new Date().toISOString(), url: "https://github.com/zk274/codexishforge/issues/14", labels: ["accessibility"], assignees: [] }],
+            pulls: [{ number: 12, title: "Add Task Center recovery", state: "open", draft: false, head: "tasks", base: "main", reviewDecision: "approved", checks: [{ name: "CI", status: "completed", conclusion: "SUCCESS" }], updatedAt: new Date().toISOString(), url: "https://github.com/zk274/codexishforge/pull/12" }],
+            runs: [{ id: 123, name: "Build, syntax, and tests", workflow: "CI", status: "completed", conclusion: "success", branch: "main", event: "push", createdAt: new Date().toISOString(), url: "https://github.com/zk274/codexishforge/actions/runs/123" }],
             currentPull: null,
-            reviewComments: [{ id: 22, author: "reviewer", path: "src/main/git-service.mjs", line: 154, body: "Keep the server-side hunk validation.", createdAt: new Date().toISOString(), url: "https://github.com/zk274/linuxcodexzk/pull/12#discussion_r22" }],
+            reviewComments: [{ id: 22, author: "reviewer", path: "src/main/git-service.mjs", line: 154, body: "Keep the server-side hunk validation.", createdAt: new Date().toISOString(), url: "https://github.com/zk274/codexishforge/pull/12#discussion_r22" }],
             protection: { protected: true, requiredChecks: ["Build, syntax, and tests"], requiredReviews: 1, requireCodeOwners: false, requireConversationResolution: true, enforceAdmins: false },
           },
         },
@@ -1870,7 +1892,7 @@ function createWindow({ show = true } = {}) {
         },
         voiceCapability: { available: true, voices: ["cedar", "marin", "verse"], defaultVoice: "cedar", experimental: true },
         searchResults: [
-          { kind: "thread", id: "thread-result", title: "Richer creation milestone", detail: "Implement Canvas, local search, templates, and voice.", threadId: "capture-studio-thread", project: "linuxcodexzk", updatedAt: now },
+          { kind: "thread", id: "thread-result", title: "Richer creation milestone", detail: "Implement Canvas, local search, templates, and voice.", threadId: "capture-studio-thread", project: "codexishforge", updatedAt: now },
           { kind: "task", id: "task-result", title: "Verify packaged creation tools", detail: "Completed all artifact and accessibility checks.", taskId: "capture-task", state: "completed", updatedAt: now - 1_000 },
           { kind: "artifact", id: "artifact-result", title: "0.9 stabilization plan", detail: "Make the local-first Codex workspace dependable and inspectable.", artifactId: "capture-plan", artifactKind: "plan", updatedAt: now - 2_000 },
           { kind: "file", id: "file-result", title: "src/main/creation-service.mjs", detail: "CreationStore provides durable local artifacts and task templates.", repository, relativePath: "src/main/creation-service.mjs", updatedAt: now - 3_000 },
@@ -2281,7 +2303,7 @@ async function handleDeepLinkArgument(argument, source) {
     const { response } = await dialog.showMessageBox(mainWindow, {
       type: "question",
       title: "Open linked project?",
-      message: "Open this project in Codex Linux Community?",
+      message: `Open this project in ${APP_NAME}?`,
       detail: realPath,
       buttons: ["Open project", "Cancel"],
       defaultId: 1,
@@ -2456,9 +2478,9 @@ function updateTray(preferences = desktopPreferences()) {
         trayIconRepublishTimer.unref?.();
       }
     }
-    tray.setToolTip("Codex Linux Community");
+    tray.setToolTip(APP_NAME);
     tray.setContextMenu(Menu.buildFromTemplate([
-      { label: "Show Codex", click: showMainWindow },
+      { label: `Show ${APP_NAME}`, click: showMainWindow },
       { label: "Quick prompt", accelerator: shortcutAccelerator || undefined, click: () => toggleCompanion("tray") },
       { type: "separator" },
       { label: "Quit", click: () => { isQuitting = true; app.quit(); } },
@@ -2569,7 +2591,14 @@ if (singleInstanceLockAcquired) app.whenReady().then(async () => {
   fs.mkdirSync(path.dirname(sessionMarkerPath), { recursive: true });
   fs.writeFileSync(sessionMarkerPath, String(process.pid), { mode: 0o600 });
   logger = new StructuredLogger(path.join(app.getPath("userData"), "logs", "app.jsonl"));
-  log("info", "app.started", { version: app.getVersion(), packaged: app.isPackaged, platform: process.platform, arch: process.arch, previousUncleanShutdown });
+  log("info", "app.started", {
+    version: app.getVersion(),
+    packaged: app.isPackaged,
+    platform: process.platform,
+    arch: process.arch,
+    previousUncleanShutdown,
+    userDataMigrated: userDataMigration?.migrated === true,
+  });
   initializeReporting();
   initializeAutostart();
   initializeUpdater();
@@ -2614,7 +2643,7 @@ app.on("will-quit", () => {
 app.on("render-process-gone", (_event, webContents, details) => {
   log("error", "electron.renderer_gone", { reason: details.reason, exitCode: details.exitCode, url: webContents.getURL() });
   void releaseReporter?.submit(releaseReport("crash", { reason: `renderer:${details.reason}` }, { appVersion: app.getVersion() })).catch((error) => log("warn", "reporting.crash_failed", { message: error.message }));
-  dialog.showMessageBox({ type: "error", title: "Codex Linux stopped unexpectedly", message: `The interface stopped unexpectedly (${details.reason}).`, detail: "A redacted crash event was written to the diagnostics log.", buttons: ["Restart app", "Quit"], defaultId: 0 }).then(({ response }) => {
+  dialog.showMessageBox({ type: "error", title: `${APP_NAME} stopped unexpectedly`, message: `The interface stopped unexpectedly (${details.reason}).`, detail: "A redacted crash event was written to the diagnostics log.", buttons: ["Restart app", "Quit"], defaultId: 0 }).then(({ response }) => {
     if (response === 0) { exitingAfterCrash = true; app.relaunch(); app.exit(1); } else app.quit();
   });
 });

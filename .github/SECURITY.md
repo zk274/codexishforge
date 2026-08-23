@@ -1,5 +1,7 @@
 # Security policy
 
+This policy covers CodeXishForge, independent community software that works with an installed OpenAI Codex CLI.
+
 ## Supported versions
 
 The latest stable release is the only supported production line and receives qualifying security fixes in the next patch or stable release. Beta and release-candidate builds are unsupported for production but best-effort test reports are welcome. Private development, repackaged, and superseded builds are unsupported; reports are still welcome when they demonstrate a defect in current `main`.

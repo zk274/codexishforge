@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
+import { APP_NAME, CODEX_CLIENT_NAME } from "../shared/app-identity.mjs";
 
 export class CodexClient extends EventEmitter {
   constructor({ command = "codex", clientVersion = "0.0.0", spawnProcess = spawn, requestTimeoutMs = 30_000 } = {}) {
@@ -33,7 +34,7 @@ export class CodexClient extends EventEmitter {
     });
 
     this.serverInfo = await this.request("initialize", {
-      clientInfo: { name: "codex_linux_community", title: "Codex Linux Community", version: this.clientVersion },
+      clientInfo: { name: CODEX_CLIENT_NAME, title: APP_NAME, version: this.clientVersion },
       capabilities: {
         experimentalApi: true,
         requestAttestation: false,

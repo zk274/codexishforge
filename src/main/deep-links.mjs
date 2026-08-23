@@ -1,12 +1,16 @@
 import path from "node:path";
+import { APP_NAME, APP_URL_SCHEME, LEGACY_APP_URL_SCHEME } from "../shared/app-identity.mjs";
 
-export const DEEP_LINK_SCHEME = "codex-linux";
+export const DEEP_LINK_SCHEME = APP_URL_SCHEME;
 export const DEEP_LINK_PREFIX = `${DEEP_LINK_SCHEME}:`;
+export const LEGACY_DEEP_LINK_SCHEME = LEGACY_APP_URL_SCHEME;
+export const LEGACY_DEEP_LINK_PREFIX = `${LEGACY_DEEP_LINK_SCHEME}:`;
+export const DEEP_LINK_SCHEMES = Object.freeze([DEEP_LINK_SCHEME, LEGACY_DEEP_LINK_SCHEME]);
 export const MAX_DEEP_LINK_LENGTH = 8192;
 export const MAX_PROJECT_PATH_LENGTH = 4096;
 export const MAX_THREAD_ID_LENGTH = 128;
 
-function invalid(message = "This Codex Linux link is not supported.") {
+function invalid(message = `This ${APP_NAME} link is not supported.`) {
   const error = new Error(message);
   error.code = "INVALID_DEEP_LINK";
   return error;
@@ -18,7 +22,7 @@ function hasOnlySearchParams(url, expectedNames) {
 }
 
 function assertCommonUrlShape(url) {
-  if (url.protocol.toLowerCase() !== `${DEEP_LINK_SCHEME}:`) throw invalid();
+  if (!DEEP_LINK_SCHEMES.some((scheme) => url.protocol.toLowerCase() === `${scheme}:`)) throw invalid();
   if (url.username || url.password || url.port || url.hash) throw invalid();
 }
 
@@ -27,7 +31,7 @@ export function extractDeepLinkArgument(argv = []) {
   return argv.find((argument) => (
     typeof argument === "string"
     && argument.length <= MAX_DEEP_LINK_LENGTH
-    && argument.toLowerCase().startsWith(DEEP_LINK_PREFIX)
+    && DEEP_LINK_SCHEMES.some((scheme) => argument.toLowerCase().startsWith(`${scheme}:`))
   )) || null;
 }
 
@@ -59,7 +63,7 @@ export function parseDeepLink(value) {
       || threadId.length < 1
       || threadId.length > MAX_THREAD_ID_LENGTH
       || !/^[A-Za-z0-9_-]+$/.test(threadId)
-    ) throw invalid("This Codex Linux thread link is invalid.");
+    ) throw invalid(`This ${APP_NAME} thread link is invalid.`);
     return { kind: "thread", threadId };
   }
 
@@ -73,7 +77,7 @@ export function parseDeepLink(value) {
       || candidate.includes("\0")
       || /[\r\n]/.test(candidate)
       || !path.isAbsolute(candidate)
-    ) throw invalid("This Codex Linux project link must contain an absolute directory path.");
+    ) throw invalid(`This ${APP_NAME} project link must contain an absolute directory path.`);
     return { kind: "project", cwd: path.normalize(candidate) };
   }
 

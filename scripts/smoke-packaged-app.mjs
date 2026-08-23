@@ -20,7 +20,7 @@ assert.ok(fs.statSync(appImagePath).isFile(), `AppImage not found: ${appImagePat
 const xvfbRun = ["/usr/bin/xvfb-run", "/usr/local/bin/xvfb-run"].find((candidate) => fs.existsSync(candidate));
 assert.ok(xvfbRun || process.env.DISPLAY, "xvfb-run or an existing X display is required for the packaged launch smoke test");
 
-const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "codex-linux-package-smoke-"));
+const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "codexishforge-package-smoke-"));
 const homeDirectory = path.join(temporaryDirectory, "home");
 const runtimeDirectory = path.join(temporaryDirectory, "runtime");
 const reportPath = path.join(temporaryDirectory, "report.json");
@@ -85,7 +85,7 @@ try {
   assert.equal(report.renderer?.readyState, "complete");
   assert.equal(report.renderer?.hasComposer, true);
   assert.equal(report.renderer?.hasAuthDialog, true);
-  assert.match(report.renderer?.title || "", /Codex Linux Community/);
+  assert.match(report.renderer?.title || "", /CodeXishForge/);
   console.log(JSON.stringify({
     ...report,
     display: xvfbRun ? "xvfb" : "existing-x11",

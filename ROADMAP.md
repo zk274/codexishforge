@@ -1,6 +1,6 @@
 # Product roadmap
 
-Codex Linux Community is a repository-first desktop coding agent. Desktop conveniences should reduce friction around that workflow rather than turn the product into a general ChatGPT clone.
+CodeXishForge is a local-first Linux coding-agent workspace. Desktop conveniences should reduce friction around repository work rather than turn the product into a general chat client. It works with the user's installed OpenAI Codex CLI and remains independent community software.
 
 ## 0.2 — Daily-driver foundations
 
@@ -42,7 +42,7 @@ Codex Linux Community is a repository-first desktop coding agent. Desktop conven
 - [x] Camera capture and attachment preview
 - [x] Configurable notifications for completed turns, approvals, questions, and background terminals
 - [x] XDG launch-at-login with background tray startup
-- [x] Single-instance `codex-linux://` protocol and deep-link routing
+- [x] Single-instance `codexishforge://` protocol and deep-link routing
 - [x] Stable/beta updater channels with explicit download and install controls
 - [x] Accessibility audit, keyboard navigation, reduced motion, text scaling, and high-contrast support
 
@@ -90,7 +90,7 @@ Codex Linux Community is a repository-first desktop coding agent. Desktop conven
 
 ## 1.0 — Trusted Linux daily driver
 
-Version 1.0 means the local-first coding workflow is dependable enough to recommend as a primary Codex desktop client, not that every general assistant feature exists.
+Version 1.0 means the local-first coding workflow is dependable enough to recommend as a primary Linux workspace for work performed through an installed Codex CLI, not that every general assistant feature exists.
 
 - [ ] On one exact 1.0 release candidate with a real Codex account, resume the last thread after restart; recover a background task and isolated worktree; restart a terminal after a CLI disconnect; approve and deny requests; and review, stage, reject, and commit changes without lost state.
 - [ ] Pass the local Git status, diff, stage, unstage, discard, hunk review, commit, branch, and non-force-push suite. With authenticated GitHub CLI, list issues as context, create a draft pull request, and display its reviews, inline comments, checks, Actions runs, and branch policy.

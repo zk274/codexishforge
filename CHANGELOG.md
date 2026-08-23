@@ -4,6 +4,11 @@ All notable public changes will be recorded here. Versions follow semantic versi
 
 ## Unreleased
 
+### Identity
+
+- Adopt the independent **CodeXishForge** product name and the canonical `zk274/codexishforge` repository identity.
+- Describe CodeXishForge as a local-first Linux coding-agent workspace that works with an installed OpenAI Codex CLI, without implying an OpenAI affiliation or endorsement.
+
 ### Release preparation
 
 - Establish an exact-artifact 1.0 release checklist, support policy, and write-once draft-release process.

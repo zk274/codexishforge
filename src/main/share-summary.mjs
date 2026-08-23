@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import { APP_NAME } from "../shared/app-identity.mjs";
 
 function line(label, value) {
   return `- ${label}: ${value == null || value === "" ? "unknown" : value}`;
@@ -12,7 +13,7 @@ function safeVersion(value) {
 export function redactedDiagnosticsMarkdown(report) {
   const project = report?.activeThread?.project ? path.basename(report.activeThread.project) : "none";
   return [
-    "# Codex Linux Community diagnostics",
+    `# ${APP_NAME} diagnostics`,
     "",
     line("Generated", report?.generatedAt),
     line("App", safeVersion(report?.application?.version)),
@@ -40,7 +41,7 @@ export function redactedTaskMarkdown(snapshot) {
     return `| ${index + 1} | ${task.state || "unknown"} | ${task.isolation || "unknown"} | ${task.attempts || 0} | ${agents} | ${pending} |`;
   });
   return [
-    "# Codex Linux Community task summary",
+    `# ${APP_NAME} task summary`,
     "",
     line("Generated", new Date().toISOString()),
     line("Active slots", `${snapshot?.limits?.active || 0}/${snapshot?.limits?.maxConcurrent || 0}`),

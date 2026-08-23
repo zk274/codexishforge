@@ -1,6 +1,6 @@
-# Release process
+# CodeXishForge release process
 
-This process turns one exact source commit into one write-once set of Linux release artifacts. A version label alone is never release evidence, and an RC artifact is never renamed or repackaged as stable.
+This process turns one exact CodeXishForge source commit into one write-once set of Linux release artifacts. A version label alone is never release evidence, and an RC artifact is never renamed or repackaged as stable.
 
 ## Channels and versions
 

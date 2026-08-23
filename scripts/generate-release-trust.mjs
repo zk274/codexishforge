@@ -20,7 +20,7 @@ const cyclonedxCli = path.join(
   "bin",
   "cyclonedx-npm-cli.js",
 );
-const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "codex-linux-sbom-"));
+const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "codexishforge-sbom-"));
 const generatedSbomPath = path.join(temporaryDirectory, RELEASE_SBOM_FILE);
 
 function addPackagedElectron(sbom) {
@@ -35,7 +35,7 @@ function addPackagedElectron(sbom) {
     purl: reference,
     properties: [
       {
-        name: "community.codexlinux:distribution",
+        name: "io.github.zk274.codexishforge:distribution",
         value: "packaged-runtime",
       },
     ],

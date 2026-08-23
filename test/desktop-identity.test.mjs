@@ -16,8 +16,8 @@ test("uses the installed freedesktop identity on ordinary Linux packages", () =>
 test("uses snapd's prefixed desktop filename for Snap instances", () => {
   assert.equal(resolveLinuxDesktopName({
     platform: "linux",
-    snapInstanceName: "codex-linux-community",
-  }), "codex-linux-community_community.codexlinux.desktop");
+    snapInstanceName: "codexishforge",
+  }), "codexishforge_io.github.zk274.codexishforge.desktop");
 });
 
 test("does not accept an unbounded Snap instance identity", () => {
@@ -34,10 +34,15 @@ test("does not configure a freedesktop identity on other platforms", () => {
   }), null);
 });
 
-test("sets the resolved desktop identity before acquiring the instance lock", () => {
+test("sets the desktop and migrated user-data identities before acquiring the instance lock", () => {
   const main = fs.readFileSync(new URL("../src/main/main.mjs", import.meta.url), "utf8");
   const setIdentity = main.indexOf("app.setDesktopName(linuxDesktopName)");
+  const migrateUserData = main.indexOf("migrateLegacyUserData({");
+  const setUserData = main.indexOf('app.setPath("userData"');
   const acquireLock = main.indexOf("app.requestSingleInstanceLock");
   assert.ok(setIdentity >= 0);
+  assert.ok(migrateUserData > setIdentity);
+  assert.ok(setUserData > migrateUserData);
   assert.ok(acquireLock > setIdentity);
+  assert.ok(acquireLock > setUserData);
 });
