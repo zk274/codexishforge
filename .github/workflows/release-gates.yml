@@ -80,7 +80,7 @@ jobs:
         run: echo "Trust metadata is verified; GitHub/Sigstore attestations run only for a public tagged build."
 
       - name: Upload verified packages
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: codexishforge-${{ github.run_id }}-${{ runner.arch }}-verified
           overwrite: true
@@ -140,7 +140,7 @@ jobs:
         run: cp "${{ steps.sbom.outputs.bundle-path }}" dist/release-sbom.sigstore.json
 
       - name: Upload attested release bundle
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: codexishforge-${{ github.run_id }}-${{ runner.arch }}-attested
           if-no-files-found: error
